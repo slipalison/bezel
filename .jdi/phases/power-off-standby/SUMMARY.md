@@ -40,11 +40,19 @@
   `off` fica), `5276234` rótulos dos guias = i18n e `--brightness` (check-docs exige), `b948b68` guias de
   armazenamento e README com o que a tela mostra ao ligar (1º vídeo de `sd/video`, álbum de `sd/image`).
 
+- Iteração 2 (fix_blockers, `d5922ee..5746fe9`, 16 commits): B1 `Inhibitor::release` (clippy msvc do studio limpo,
+  conferido localmente só-check com toolchain substituto no scratchpad), B2 `album_add` com `replace` próprio
+  (`notConfirmed` sem ele), prova da linha 3 pelo handler real do `App::run`, linha 5 com `FakeLog::kept` ordenado;
+  W1–W7/W9: plano B gravado por último com o brilho (`stored`/`planB` no catálogo), `RecordedChoice`, prazo contado
+  do sinal, diálogo do álbum preso durante o envio, guias verdadeiros sobre o plano B sem o studio. 1036 testes.
+
 ## Deviations
 - D-7 (orquestrador, antes do loop): contagens mínimas no DoD e Windows provado por teste + clippy msvc local.
 - `bezel-power` devolve `Result` em `inhibit`/`delay_max`/`wait` (o PLAN dizia valor puro): exigido pelo próprio
   critério "sem logind = erro tipado".
 - T-2: o limite de um STOP_MEDIA vale para todo play (o driver não sabe se é desligamento); o 8.8" responde na 1ª.
+- Contratos mudados na iteração 2: `album_add` + `replace`, `choose(..., brightness, ...)`, `at_shutdown(link,
+  &RecordedChoice)`, `Offer.videos: Vec<FileEntry>`.
 - T-6 ajustou `tests/ui/storage.test.mjs`; T-5 ganhou `StorageState::scratch()`; T-7 tornou `pub(crate)` 4 helpers de
   `storage.rs` da CLI (fora de `files_modified`, mínimos).
 
