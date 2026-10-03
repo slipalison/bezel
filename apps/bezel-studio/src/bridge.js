@@ -236,8 +236,9 @@ export const PROGRESS_EVENT = 'storage-progress';
 // screen). Nothing is written nor recorded without `confirmed`. Errors
 // reject like every command, as `{code, args, message}` (`notConfirmed`,
 // `unsupported`, `invalidInput`, `screenNotFound`, `busy`, ...); no code is
-// new. The album is listed and its photos deleted with `storageOverview`
-// (the `sd`/`image` folder) and `deleteStored`, thumbnails with `managerThumbnail`.
+// new. The album is listed with `managerOverview` (its `sd`/`image` files:
+// the listing `managerThumbnail` answers for) and its photos deleted with
+// `deleteStored`.
 /**
  * @typedef {'keep'|'off'|'video'|'album'} StandbyChoiceCode
  * @typedef {'notConnected'|'unsupported'|'noCard'|'noVideo'} StandbyReasonCode

@@ -419,7 +419,7 @@ export function createStandbyPanel({ root, t, locale, bridge, notify, context, s
     async function reload() {
       status.textContent = t('standby.album.loading');
       try {
-        photos = albumPhotos(await bridge.storageOverview(key));
+        photos = albumPhotos(await bridge.managerOverview(key));
         status.textContent = '';
       } catch (e) {
         status.textContent = t('standby.album.loadError', { message: errorText(t, e) });

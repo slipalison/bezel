@@ -480,6 +480,9 @@ test('a cancelled batch delete stops before the next file', async () => {
 
 test('associating an original copies it into the store; clearing the cache keeps entries and thumbnails', async () => {
   const demo = createDemoBackend('vendorCard', instant);
+  // The manager lists the screen first: thumbnails answer for what it listed.
+  await demo.managerOverview(KEY);
+  assert.equal(await demo.managerThumbnail(KEY, 'internal/video/DARIUS.mp4'), null, 'no copy yet');
   const files = await demo.pickOriginals(false);
   const folder = await demo.pickOriginals(true);
   assert.equal(folder.length, 1);

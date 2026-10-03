@@ -451,6 +451,38 @@ fn album_photos_are_framed_for_the_screen_lying_or_standing() {
     }
 }
 
+/// D-2026-10-03-power-off-standby-4 (2): the album lists `sd/image` through
+/// the storage manager's overview, whose listing the thumbnails answer for:
+/// a photo Bezel sent shows its local copy, one the vendor's app put there
+/// shows by its name. The storage tab's listing alone gives no thumbnail.
+#[test]
+fn the_album_lists_through_the_manager_overview_with_thumbnails() {
+    const VENDOR: &str = "sd/image/img_0042.jpg";
+    let storage = FakeStorage::default()
+        .with_card(CARD)
+        .with_file(remote_path(VENDOR), vec![7; 90]);
+    let s = Setup::new("album-thumbs", storage);
+    let photo = s.wide_photo("beach.png");
+    let added = s.add(&photo, "cover", "beach.png", Confirm::Yes).unwrap();
+    let backend = &s.f.backend;
+
+    backend.storage_overview(KEY, TIME).unwrap();
+    assert_eq!(backend.manager_thumbnail(KEY, &added.path), None);
+
+    let overview = backend.manager_overview(KEY, TIME).unwrap();
+    let album: Vec<&str> = overview
+        .files
+        .iter()
+        .filter(|f| (f.file.medium, f.file.kind) == ("sd", "image"))
+        .map(|f| f.file.path.as_str())
+        .collect();
+    assert_eq!(album, [added.path.as_str(), VENDOR]);
+    let url = backend.manager_thumbnail(KEY, &added.path).unwrap();
+    assert!(url.starts_with("data:image/png;base64,"), "{url}");
+    assert_eq!(backend.manager_thumbnail(KEY, VENDOR), None, "by its name");
+    assert_eq!(backend.manager_thumbnail("COM9", &added.path), None);
+}
+
 /// D-2026-10-03-power-off-standby-4 (2): removing a photo is the confirmed
 /// delete; without the confirmation the photo stays.
 #[test]

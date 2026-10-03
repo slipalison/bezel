@@ -18,9 +18,11 @@
 //! while the studio runs shows. Changing it, and adding a photo (replacing
 //! one of the same name included), takes the user's [`Confirm`], the answer
 //! of the UI's dialog that says what is written; with `Confirm::No` nothing
-//! reaches any screen and nothing is recorded. Listing and removing the
-//! album's photos are the storage tab's `storage_overview` and
-//! `delete_stored` (a confirmed delete).
+//! reaches any screen and nothing is recorded. The album's photos are listed
+//! by the storage manager's `manager_overview`, whose listing
+//! `manager_thumbnail` answers for (a photo Bezel sent shows its local
+//! copy), and removed by the storage tab's `delete_stored` (a confirmed
+//! delete).
 //!
 //! A photo is decoded on this computer (`bezel_media::photo`: JPEG, PNG, BMP
 //! or a GIF's first picture, its EXIF orientation applied), framed by Fill

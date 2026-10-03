@@ -432,6 +432,8 @@ function createDemoStorage(chosen, { delay, now, live, isLive, theme, themes, sc
   const tools = { ready: chosen.ffmpeg !== false, configured: null };
   let tickets = 0;
   let job = null;
+  // What the last manager overview listed, like the studio's: thumbnails only for these files.
+  let listedBy = { key: null, paths: new Set() };
   const gate = createDemoGate(hold);
   const state = { playback: null, boot: layout.boot ?? null, bootBrightness: null };
   // The catalog of the 8.8" model (the demo's only model with storage).
@@ -833,19 +835,28 @@ function createDemoStorage(chosen, { delay, now, live, isLive, theme, themes, sc
       return Promise.resolve({ internal: capacity('internal'), card: card ? capacity('sd') : null, folders });
     },
     /** Both media with the catalog beside them (the storage manager's view). */
-    managerOverview: (key) => blocked(key) ?? Promise.resolve({
-      internal: capacity('internal'),
-      card: card ? capacity('sd') : null,
-      files: managedFiles(key),
-      folderErrors: [],
-      restorable: restorable().map(({ content, ...r }) => r),
-      deletes: !limited(key),
-      cap: capOf(key),
-      cache: cacheInfo(),
-    }),
-    /** A file's thumbnail from its local copy (kept when the copy is cleared), else `null`. */
+    managerOverview: (key) => {
+      const refusal = blocked(key);
+      if (refusal) return refusal;
+      const listed = managedFiles(key);
+      listedBy = { key, paths: new Set(listed.map((f) => f.path)) };
+      return Promise.resolve({
+        internal: capacity('internal'),
+        card: card ? capacity('sd') : null,
+        files: listed,
+        folderErrors: [],
+        restorable: restorable().map(({ content, ...r }) => r),
+        deletes: !limited(key),
+        cap: capOf(key),
+        cache: cacheInfo(),
+      });
+    },
+    /**
+     * A file's thumbnail from its local copy (kept when the copy is cleared), else `null`; like the
+     * studio's, only for a file the last manager overview of `key` listed.
+     */
     managerThumbnail: (key, path) => {
-      const found = entryAt(path);
+      const found = listedBy.key === key && listedBy.paths.has(path) ? entryAt(path) : null;
       return Promise.resolve(found?.thumb ? demoFileThumbnail(found.path.split('/')[2], found.path.split('/')[1]) : null);
     },
     planMove: (key, paths, to, overwrite = []) => blocked(key, to) ?? Promise.resolve(keepPlan(key, demoPlanAcross(planView(key), 'move', paths, to, overwrite))),

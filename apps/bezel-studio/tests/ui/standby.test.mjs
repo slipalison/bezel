@@ -166,21 +166,18 @@ test('videos are grouped by medium, internal memory first, empty groups left out
   assert.deepEqual(videoGroups(null), []);
 });
 
-test('the album is the card image folder of a storage overview, by name', () => {
-  const storage = {
-    folders: [
-      { medium: 'internal', kind: 'image', files: [video('internal/image/logo.png')] },
-      { medium: 'sd', kind: 'image', files: [video('sd/image/praia.png'), video('sd/image/img_0042.jpg')] },
-      { medium: 'sd', kind: 'video', files: [video('sd/video/chuva.mp4')] },
-    ],
+test('the album is the card image files of the storage manager overview, by name', () => {
+  // The manager overview (`manager_overview`): its listing is what `manager_thumbnail` answers for.
+  const overview = {
+    files: [video('internal/image/logo.png'), video('sd/image/praia.png'), video('sd/video/chuva.mp4'), video('sd/image/img_0042.jpg')],
   };
   assert.deepEqual(ALBUM, { medium: 'sd', kind: 'image' });
-  assert.deepEqual(albumPhotos(storage).map((p) => p.name), ['img_0042.jpg', 'praia.png']);
-  assert.deepEqual(albumPhotos({ folders: [] }), [], 'no card');
+  assert.deepEqual(albumPhotos(overview).map((p) => p.name), ['img_0042.jpg', 'praia.png']);
+  assert.deepEqual(albumPhotos({ files: [video('internal/image/logo.png')] }), [], 'no card');
   assert.deepEqual(albumPhotos(null), []);
   assert.equal(albumPath('praia.png'), 'sd/image/praia.png');
-  assert.equal(albumClash(albumPhotos(storage), 'PRAIA.png')?.path, 'sd/image/praia.png', 'the same name but for letter case');
-  assert.equal(albumClash(albumPhotos(storage), 'mar.png'), null);
+  assert.equal(albumClash(albumPhotos(overview), 'PRAIA.png')?.path, 'sd/image/praia.png', 'the same name but for letter case');
+  assert.equal(albumClash(albumPhotos(overview), 'mar.png'), null);
 });
 
 test('a photo is framed in the shape the screen stands in: horizontal and vertical alike', () => {
@@ -348,19 +345,20 @@ test('the demo adds a photo to the card album only when confirmed, cataloged wit
   const { demo } = demoIn('turing88');
   const photo = await demo.pickPhoto();
   await assert.rejects(demo.albumAdd(SCREEN, photo, 'cover', 'praia.png', false), (e) => e.code === 'notConfirmed');
-  const before = await demo.storageOverview(SCREEN);
+  const before = await demo.managerOverview(SCREEN);
   assert.deepEqual(albumPhotos(before), []);
   const added = await demo.albumAdd(SCREEN, photo, 'cover', 'praia.png', true);
   assert.deepEqual(added, { path: 'sd/image/praia.png', bytes: Math.round(480 * 1920 * 1.2) });
-  const after = albumPhotos(await demo.storageOverview(SCREEN));
+  assert.equal(await demo.managerThumbnail(SCREEN, 'sd/image/praia.png'), null, 'not listed yet');
+  const after = albumPhotos(await demo.managerOverview(SCREEN));
   assert.deepEqual(after.map((p) => [p.path, p.size]), [['sd/image/praia.png', added.bytes]]);
   assert.match(await demo.managerThumbnail(SCREEN, 'sd/image/praia.png'), /^data:image\/svg\+xml,/);
   // The same name again replaces it (the confirmation covers it).
   await demo.albumAdd(SCREEN, photo, 'contain', 'praia.png', true);
-  assert.equal(albumPhotos(await demo.storageOverview(SCREEN)).length, 1);
+  assert.equal(albumPhotos(await demo.managerOverview(SCREEN)).length, 1);
   // Removing is the confirmed delete of today.
   await demo.deleteStored(SCREEN, 'sd/image/praia.png', true);
-  assert.deepEqual(albumPhotos(await demo.storageOverview(SCREEN)), []);
+  assert.deepEqual(albumPhotos(await demo.managerOverview(SCREEN)), []);
 });
 
 test('the demo refuses an album photo it cannot send, before sending', async () => {
@@ -371,15 +369,20 @@ test('the demo refuses an album photo it cannot send, before sending', async () 
   await assert.rejects(demo.albumAdd(SCREEN, '/home/demo/nope.jpg', 'cover', 'x.png', true), (e) => e.code === 'fileError');
   await assert.rejects(demoIn('noCard').demo.albumAdd(SCREEN, photo, 'cover', 'x.png', true), (e) => e.code === 'unsupported' && /SD card/.test(e.args.detail));
   await assert.rejects(demoIn('turzx').demo.albumAdd('3-1.4', photo, 'cover', 'x.png', true), (e) => e.code === 'unsupported');
-  assert.deepEqual(albumPhotos(await demo.storageOverview(SCREEN)), []);
+  assert.deepEqual(albumPhotos(await demo.managerOverview(SCREEN)), []);
 });
 
-test('the album scenario has a photo Bezel sent and one it did not', async () => {
+test('the album scenario has a photo Bezel sent and one it did not; thumbnails follow the manager overview', async () => {
   const { demo } = demoIn('album');
-  const photos = albumPhotos(await demo.storageOverview(SCREEN));
+  // Like the studio, a thumbnail only comes for a file the last manager overview of the screen listed:
+  // the storage tab's listing is not enough.
+  await demo.storageOverview(SCREEN);
+  assert.equal(await demo.managerThumbnail(SCREEN, 'sd/image/praia.png'), null, 'the storage listing does not count');
+  const photos = albumPhotos(await demo.managerOverview(SCREEN));
   assert.deepEqual(photos.map((p) => p.name), ['img_0042.jpg', 'praia.png']);
   assert.match(await demo.managerThumbnail(SCREEN, 'sd/image/praia.png'), /^data:/);
   assert.equal(await demo.managerThumbnail(SCREEN, 'sd/image/img_0042.jpg'), null, 'the vendor app put it there: by its name');
+  assert.equal(await demo.managerThumbnail('/dev/ttyACM9', 'sd/image/praia.png'), null, 'another screen was not listed');
 });
 
 // -------------------------------------------------------------- bridge --

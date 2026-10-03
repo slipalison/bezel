@@ -162,13 +162,14 @@ export function videoGroups(videos) {
 }
 
 /**
- * The album's photos: the files of the card's image folder in a storage
- * overview (`storage_overview`), by name.
- * @param {{folders?: {medium: string, kind: string, files: {name: string}[]}[]}|null} storage
+ * The album's photos: the files of the card's image folder in the storage
+ * manager's overview (`manager_overview`), by name. Its listing is the one
+ * `manager_thumbnail` answers for, so Bezel's photos get their thumbnails.
+ * @param {{files?: {medium: string, kind: string, name: string}[]}|null} overview
  */
-export function albumPhotos(storage) {
-  const folder = storage?.folders?.find((f) => f.medium === ALBUM.medium && f.kind === ALBUM.kind);
-  return [...(folder?.files ?? [])].sort((a, b) => a.name.localeCompare(b.name));
+export function albumPhotos(overview) {
+  const photos = (overview?.files ?? []).filter((f) => f.medium === ALBUM.medium && f.kind === ALBUM.kind);
+  return photos.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /**
