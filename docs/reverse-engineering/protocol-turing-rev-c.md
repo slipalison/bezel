@@ -611,6 +611,17 @@ packets that carry it out, the one case where they leave without a click at that
 | `video` | GET_FILE_SIZE 0x6E of the chosen file, STOP_VIDEO 0x79 and at most one STOP_MEDIA 0x96, then PLAY_VIDEO 0x78, loop; no 0x87 after it | start mode 2, sleep 0 |
 | `album` | GET_STORAGE_INFO 0x64 (a card?), SET_BRIGHTNESS 0x7B when a level was stored with the last plan B, OPTIONS (start mode 1, sleep 0, that level), then RESTART 0x84, without waiting | start mode 1, sleep 0 |
 
+Besides the queries, the SET_BRIGHTNESS of `album` is the one packet at shutdown that `D-2026-10-03-power-off-standby-3`
+(1) does not list (it names OPTIONS start mode 1 and RESTART), and it adds no exception. OPTIONS stores as its byte 10
+the level the link last set (section 6.2), and the link that carries out the choice at shutdown is the live one, at the
+level the studio set, or one opened for it, which set none. Without 0x7B first, the album would start after the restart
+at that level or at the vendor's default (170), not at the one chosen with the plan B (`bezel standby set album
+--brightness`), which `D-2026-10-03-power-off-standby-2` (3) has OPTIONS carry. It goes only when the record holds a
+chosen level; otherwise OPTIONS carries the link's level and no 0x7B is sent. 0x7B is the brightness Bezel sends at
+every theme start, within the automatic set above: neither a storage command nor a disruptive one, and persistent only
+through the OPTIONS that follows it. That OPTIONS (start mode 1) is what the catalog then records as the plan B stored
+last, also when a boot media set after the choice had stored another.
+
 A choice that cannot be carried out (the file or the card is gone) gets TURNOFF instead of a frozen frame. The sleep
 timer goes only with `off`, because it also powers down a standalone album or video (section 19). No other persistent,
 storage or disruptive command (DELETE, UPLOAD, 0x82, 0x81, the MCU restart) leaves these paths, and Bezel never
