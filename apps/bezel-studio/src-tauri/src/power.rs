@@ -10,7 +10,8 @@
 //!   less [`MARGIN`] as the deadline, then closes the lock's descriptor, so
 //!   the shutdown goes on; on `false` (cancelled) the final state ends, the
 //!   lock is taken again and the live screen comes back as at the app's
-//!   start. Without a bus or logind it says so ([`DiagCode`]) and each
+//!   start. The final state starts with the announcement, before the delay
+//!   is read. Without a bus or logind it says so ([`DiagCode`]) and each
 //!   screen keeps its plan B.
 //! - Windows: `RunEvent::Exit` while the session ends
 //!   ([`bezel_power::session_ending`], `false` elsewhere) runs the same
@@ -114,8 +115,9 @@ pub fn at_exit(backend: Option<&Shared>, exit: Exit) -> Option<Ending> {
 }
 
 /// Applies each screen's choice as the computer shuts down: the session's
-/// final state first, then the actions ([`Backend::apply_choices`]) on a
-/// thread of their own. Returns once they are done, or at `deadline`
+/// final state first (a caller may have entered it already: entering it
+/// again changes nothing), then the actions ([`Backend::apply_choices`]) on
+/// a thread of their own. Returns once they are done, or at `deadline`
 /// (whatever is left goes on, unwaited for). The final state stays until
 /// [`Backend::leave_final_state`].
 pub fn shut_down(backend: &Shared, deadline: Instant) -> Ending {
@@ -174,6 +176,10 @@ fn watch(backend: &Shared, address: &BusAddress) -> Option<DiagCode> {
             Ok(Some(Shutdown::Starting)) => {
                 let arrived = Instant::now();
                 ending = true;
+                // Nothing reaches a screen from the announcement on, also
+                // while logind's delay is read (a bus busy at shutdown can
+                // take seconds to answer).
+                backend.enter_final_state();
                 shut_down(backend, deadline_after(arrived, &logind));
                 // Closing the descriptor lets the shutdown go on. Released,
                 // not dropped: off Linux an `Inhibitor` has nothing to close

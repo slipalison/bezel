@@ -1252,6 +1252,42 @@ fn linux_a_hung_screen_releases_the_lock_at_the_deadline() {
     });
 }
 
+/// Review W4 of iteration 2: the final state starts as soon as logind
+/// announces the shutdown, not once its delay is read (a bus busy at
+/// shutdown can take seconds to answer). With a logind that takes 2 s to
+/// say its delay, the session is in its final state while the read waits,
+/// and from then on the screen hears nothing (no frame of the refresh loop)
+/// but its choice, TURNOFF.
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_the_final_state_starts_before_the_delay_is_read() {
+    let logind = Arc::new(LogindBus::start_slow(
+        Some(LONG_DELAY),
+        Duration::from_secs(2),
+    ));
+    let (_root, folders) = folders_for("power-final-first", off());
+    let heard = Heard::default();
+    let fake = FakeConnector::with_storage(FakeStorage::default());
+    let connector = Recording::over(fake, &heard, Hold::Never);
+    let (bus, seen) = (Arc::clone(&logind), heard.clone());
+    run_app(folders, connector, logind.address(), move |backend| {
+        wait_live(backend, &seen);
+        assert!(bus.logind().wait_for_inhibitors(1, PATIENCE));
+        bus.logind().prepare_for_shutdown(true).unwrap();
+        wait_until("the studio asked for logind's delay", || {
+            let calls = bus.logind().calls();
+            calls.iter().any(|c| matches!(c, LogindCall::Get { .. }))
+        });
+        assert!(
+            backend.studio().shutting_down(),
+            "the final state waits for logind's delay"
+        );
+        let asked = seen.all().len();
+        assert!(bus.logind().wait_for_release(0, PATIENCE));
+        assert_eq!(seen.since(asked), ["turn_off_now"], "{:?}", seen.all());
+    });
+}
+
 /// Review W9 of iteration 1: the deadline is counted from logind's
 /// announcement, as logind counts its delay, not from the answer to reading
 /// the delay. With a logind that takes 1 s to say its 3 s delay, a screen
