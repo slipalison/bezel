@@ -317,9 +317,11 @@ pub enum Repeat {
 pub enum StartMode {
     /// Its built-in clock or logo.
     Default,
-    /// The last stored image it played (the firmware's choice).
+    /// The stored images, one after another: the album of the card's
+    /// image folder (the firmware's carousel; protocol §19).
     Image,
-    /// The last stored video it played (the firmware's choice).
+    /// A stored video: the first entry of the card's video folder, which
+    /// the firmware picks, not the last one played (protocol §19).
     Video,
 }
 
