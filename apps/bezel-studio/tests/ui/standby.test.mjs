@@ -105,6 +105,28 @@ test('a write for a screen no longer shown leaves the reading of the shown one t
   assert.equal(answers.newest(after), true);
 });
 
+test('a write whose screen is shown again before its answer reads that screen again', () => {
+  // Review W3 of iteration 3: A's confirmation is answered while B is shown;
+  // A is chosen again at the top before the write's answer, and its reading
+  // may read the catalog before the write saves it.
+  const answers = createAnswers();
+  answers.reading();
+  const forA = answers.writing('A', 'B');
+  assert.equal(forA, null);
+  const ofA = answers.reading();
+  assert.equal(answers.written(forA, 'A', 'A'), 'read', 'A keeps its choice from before the write');
+  assert.equal(answers.written(forA, 'A', 'B'), 'none', "A's answer is drawn on B");
+  assert.equal(answers.newest(ofA), true, 'the reading of the screen shown is not outdated by the answer');
+
+  // A write for the screen shown and no reading since: its answer is drawn.
+  const forB = answers.writing('B', 'B');
+  assert.equal(answers.written(forB, 'B', 'B'), 'draw');
+  // B chosen again while it runs (A, then B, at the top): read again.
+  answers.reading();
+  answers.reading();
+  assert.equal(answers.written(forB, 'B', 'B'), 'read');
+});
+
 test('the sleep timer takes 1 to 10 whole minutes, 5 suggested', () => {
   assert.deepEqual(SLEEP, { min: 1, max: 10, suggested: 5 });
   assert.deepEqual(sleepChoices(), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);

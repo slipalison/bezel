@@ -352,9 +352,11 @@ export function createStandbyPanel({ root, t, locale, bridge, notify, context, s
   /**
    * Writes `request` to the screen `key` (the one shown when it was asked).
    * Its answer is drawn only while that screen is still the one shown, and
-   * only if no reading of it started since (a newer answer wins). Written
-   * for a screen no longer shown, it leaves the reading of the shown one
-   * alone.
+   * only if no reading of it started since; if one did (the screen was
+   * chosen again at the top while the write ran), it may have read the
+   * choice from before the write, so the screen is read again
+   * (`answers.written`). Written for a screen no longer shown, it leaves the
+   * reading of the shown one alone.
    */
   async function write(request, key = view.key) {
     const ticket = answers.writing(key, view.key);
@@ -371,9 +373,11 @@ export function createStandbyPanel({ root, t, locale, bridge, notify, context, s
     }
     view.busy = false;
     const same = view.key === key;
-    if (same && data && answers.newest(ticket)) Object.assign(view, { data, status: 'ready', error: null });
+    const next = answers.written(ticket, key, view.key);
+    if (next === 'draw' && data) Object.assign(view, { data, status: 'ready', error: null });
     if (same) view.problem = problem;
     render();
+    if (next === 'read' && view.shown) void load();
     if (same) focusRadio(view.data?.choice ?? request.choice);
   }
 

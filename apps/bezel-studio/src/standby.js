@@ -227,16 +227,33 @@ export const albumPath = (name) => `${ALBUM.medium}/${ALBUM.kind}/${name}`;
  * so does a write while its screen is the one shown (it outdates a reading
  * in flight). A write for another screen (the one a dialog was opened for,
  * since replaced at the top) takes none: the reading of the screen shown now
- * is still drawn, and that write's answer never is.
+ * is still drawn, and that write's answer is not drawn over it.
+ *
+ * When a write's answer comes back to its screen shown, a reading of it
+ * that started while the write ran (the screen chosen again at the top) may
+ * have read the catalog before the write saved it: the screen is read again
+ * then, so that it never keeps showing the choice from before the write
+ * (review W3 of iteration 3).
  */
 export function createAnswers() {
   let latest = 0;
+  const newest = (ticket) => ticket !== null && ticket === latest;
   return {
     /** A reading of the screen shown starts: its ticket. */
     reading: () => (latest += 1),
     /** A write for `key` starts while `shown` is shown: its ticket, `null` for another screen. */
     writing: (key, shown) => (key === shown ? (latest += 1) : null),
     /** Whether the answer of `ticket` is still the newest. */
-    newest: (ticket) => ticket !== null && ticket === latest,
+    newest,
+    /**
+     * What the answer of the write for `key` (its `ticket`) does, arriving
+     * while `shown` is shown: `draw` (no reading of its screen started
+     * since), `read` (one did: read the screen again) or `none` (another
+     * screen is shown; its own reading is drawn).
+     */
+    written: (ticket, key, shown) => {
+      if (key !== shown) return 'none';
+      return newest(ticket) ? 'draw' : 'read';
+    },
   };
 }
