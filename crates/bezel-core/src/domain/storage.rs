@@ -412,7 +412,7 @@ impl Confirmed {
     /// `Confirm::Yes`), and applying it at shutdown runs under that
     /// confirmation (D-2026-10-03-power-off-standby-2 (5), -3). Only the
     /// core's use case that applies a recorded choice makes one, and only
-    /// for a [`RecordedChoice`], which only the core reads from the store.
+    /// for a [`RecordedChoice`], which only the core reads from a store.
     pub(crate) fn recorded(choice: &RecordedChoice) -> Self {
         let _ = choice;
         Self { _proof: () }

@@ -736,7 +736,7 @@ mod tests {
     };
     use bezel_core::domain::screen::Confirm;
     use bezel_core::domain::standby::{
-        PlanB as Plan, RecordedChoice, SleepMinutes, Standby, StoredPlanB, Unavailable,
+        PlanB as Plan, SleepMinutes, Standby, StoredPlanB, Unavailable,
     };
     use bezel_core::domain::storage::{BootMedia, Capacity, Operation, UploadAction, UploadPlan};
     use bezel_core::ports::{ArchiveStore, MediaLocation, MediaTranscoder, VideoFrames};
@@ -2285,13 +2285,13 @@ mod tests {
         }
     }
 
-    /// `standby` as the catalog records it for the 8.8", read back as the
-    /// shutdown reads it.
-    fn on_record(standby: Standby) -> RecordedChoice {
+    /// The shutdown of `link` with `standby` recorded for the 8.8" in the
+    /// catalog, where the core reads it.
+    fn at_shutdown_with(link: &mut dyn ScreenLink, standby: Standby) -> Result<Applied> {
         let key = ScreenKey::new(ModelId("turing-8.8"));
         let mut store = Store::default();
         store.0.screen_mut(&key).standby = standby;
-        standby::recorded_choice(&mut store, &key).unwrap()
+        standby::at_shutdown(link, &mut store, &key)
     }
 
     #[test]
@@ -2364,10 +2364,7 @@ mod tests {
         let from = s.wire().sent.len();
         let reads = s.wire().reads.len();
         let off = Standby::Off(SleepMinutes::SUGGESTED);
-        assert_eq!(
-            standby::at_shutdown(&mut s, &on_record(off)),
-            Ok(Applied::TurnedOff)
-        );
+        assert_eq!(at_shutdown_with(&mut s, off), Ok(Applied::TurnedOff));
         assert_eq!(writes(&s, from), [packet(proto::simple(op::TURN_OFF))]);
         assert_eq!(
             s.wire().reads.len(),
@@ -2386,7 +2383,7 @@ mod tests {
             let (mut s, _) = live_screen(&NoPause, true);
             let from = s.wire().sent.len();
             let video = Standby::Video(path(choice));
-            let applied = standby::at_shutdown(&mut s, &on_record(video)).unwrap();
+            let applied = at_shutdown_with(&mut s, video).unwrap();
             assert_eq!(applied, Applied::Video(path(choice)));
             assert_eq!(
                 writes(&s, from),
@@ -2411,10 +2408,7 @@ mod tests {
     fn standby_album_writes_start_mode_1_then_restarts() {
         let (mut s, _) = live_screen(&NoPause, true);
         let from = s.wire().sent.len();
-        assert_eq!(
-            standby::at_shutdown(&mut s, &on_record(Standby::Album)),
-            Ok(Applied::Album)
-        );
+        assert_eq!(at_shutdown_with(&mut s, Standby::Album), Ok(Applied::Album));
         assert_eq!(
             writes(&s, from),
             [
@@ -2448,9 +2442,11 @@ mod tests {
             plan: Plan::new(StartMode::Image, 0),
             brightness: Brightness::new(40),
         });
-        let choice = standby::recorded_choice(&mut store, &key).unwrap();
         let from = s.wire().sent.len();
-        assert_eq!(standby::at_shutdown(&mut s, &choice), Ok(Applied::Album));
+        assert_eq!(
+            standby::at_shutdown(&mut s, &mut store, &key),
+            Ok(Applied::Album)
+        );
         let at_forty = packet(proto::set_options(Options {
             brightness: 102,
             start_mode: proto::StartMode::Image,
@@ -2479,7 +2475,7 @@ mod tests {
         let from = s.wire().sent.len();
         let gone = Standby::Video(path("sd/video/gone.mp4"));
         assert_eq!(
-            standby::at_shutdown(&mut s, &on_record(gone)),
+            at_shutdown_with(&mut s, gone),
             Ok(Applied::TurnedOffInstead(Unavailable::NoVideo))
         );
         assert_eq!(
@@ -2496,7 +2492,7 @@ mod tests {
         let (mut s, _) = live_screen(&NoPause, false);
         let from = s.wire().sent.len();
         assert_eq!(
-            standby::at_shutdown(&mut s, &on_record(Standby::Album)),
+            at_shutdown_with(&mut s, Standby::Album),
             Ok(Applied::TurnedOffInstead(Unavailable::NoCard))
         );
         assert_eq!(
@@ -2512,7 +2508,7 @@ mod tests {
         // keep: nothing at all.
         let from = s.wire().sent.len();
         assert_eq!(
-            standby::at_shutdown(&mut s, &on_record(Standby::Keep)),
+            at_shutdown_with(&mut s, Standby::Keep),
             Ok(Applied::Nothing)
         );
         assert!(writes(&s, from).is_empty());
@@ -2589,7 +2585,7 @@ mod tests {
         let reads = s.wire().reads.len();
         let video = path("sd/video/loop.mp4");
         assert_eq!(
-            standby::at_shutdown(&mut s, &on_record(Standby::Video(video.clone()))),
+            at_shutdown_with(&mut s, Standby::Video(video.clone())),
             Ok(Applied::Video(video))
         );
         assert_eq!(

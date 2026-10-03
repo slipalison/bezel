@@ -188,18 +188,16 @@ fn video_path(text: &str) -> Result<RemotePath> {
 }
 
 /// The choice a screen's catalog record holds, as the shutdown applies it
-/// (`app::standby::at_shutdown`). Only the core makes one, from the record
-/// it reads from the store (`app::standby::recorded_choice`): a record holds
-/// a choice only once the user confirmed it, so its actions run under that
-/// confirmation (D-2026-10-03-power-off-standby-2 (5)), and no adapter can
-/// make one up for a choice nobody confirmed:
-///
-/// ```compile_fail
-/// use bezel_core::domain::standby::{RecordedChoice, Standby};
-/// let forged = RecordedChoice { standby: Standby::Album };
-/// ```
+/// (`app::standby::at_shutdown`, which reads it from the store it is
+/// given). Private to the core: no caller hands the shutdown a choice, it
+/// is always read from a catalog, where only `app::standby::choose` records
+/// one, after the user's `Confirm::Yes`; so its actions run under that
+/// confirmation (D-2026-10-03-power-off-standby-2 (5)). That a store holds
+/// only such choices is up to the store's writers and to code review: the
+/// core cannot tell the shared catalog from a store an adapter fills by
+/// itself (D-2026-10-03-power-off-standby-6 (3)).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RecordedChoice {
+pub(crate) struct RecordedChoice {
     standby: Standby,
     brightness: Option<Brightness>,
 }
@@ -215,13 +213,13 @@ impl RecordedChoice {
     }
 
     /// The choice.
-    pub fn standby(&self) -> &Standby {
+    pub(crate) fn standby(&self) -> &Standby {
         &self.standby
     }
 
     /// The backlight level stored with the screen's last plan B, when the
     /// user chose one ([`StoredPlanB::brightness`]).
-    pub fn brightness(&self) -> Option<Brightness> {
+    pub(crate) fn brightness(&self) -> Option<Brightness> {
         self.brightness
     }
 }

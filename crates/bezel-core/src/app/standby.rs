@@ -5,12 +5,11 @@
 //!
 //! Rev C screens only; any other family is `Unsupported` before anything is
 //! sent. Changing the choice needs the screen and `Confirm::Yes`: with
-//! `Confirm::No` nothing is sent, loaded or saved. Applying it takes the
-//! choice as the catalog records it ([`recorded_choice`], the only way to a
-//! [`RecordedChoice`]) and sends only what it says (TURNOFF, PLAY_VIDEO in
-//! a loop, or OPTIONS and RESTART), and TURNOFF instead when the choice
-//! cannot be honoured, so that the screen never stays frozen on the last
-//! frame.
+//! `Confirm::No` nothing is sent, loaded or saved. Applying it reads the
+//! choice from the catalog itself ([`at_shutdown`] takes no choice from its
+//! caller) and sends only what it says (TURNOFF, PLAY_VIDEO in a loop, or
+//! OPTIONS and RESTART), and TURNOFF instead when the choice cannot be
+//! honoured, so that the screen never stays frozen on the last frame.
 
 use crate::app::storage::{Presence, ensure_stored, presence, storage_of};
 use crate::domain::archive::{ScreenKey, ScreenRecord};
@@ -199,15 +198,14 @@ fn honoured(storage: &mut dyn ScreenStorage, standby: &Standby) -> Result<()> {
 }
 
 /// The choice the catalog of `store` records for `key` (`keep` without a
-/// record), as [`at_shutdown`] applies it: the only way to a
-/// [`RecordedChoice`]. Only reads the store.
-pub fn recorded_choice(store: &mut dyn ArchiveStore, key: &ScreenKey) -> Result<RecordedChoice> {
+/// record), as [`at_shutdown`] applies it. Only reads the store.
+fn recorded_choice(store: &mut dyn ArchiveStore, key: &ScreenKey) -> Result<RecordedChoice> {
     let catalog = store.load()?;
     Ok(RecordedChoice::of(catalog.screen(key)))
 }
 
-/// Applies `choice`, the choice recorded for the screen behind `link`
-/// ([`recorded_choice`]), as the computer shuts down
+/// Applies the choice the catalog of `store` records for the screen behind
+/// `link` (keyed `key`; `keep` without a record) as the computer shuts down
 /// (D-2026-10-03-power-off-standby-3), sending only what the choice says
 /// and waiting for nothing the screen does afterwards:
 /// - `keep`: nothing;
@@ -215,18 +213,39 @@ pub fn recorded_choice(store: &mut dyn ArchiveStore, key: &ScreenKey) -> Result<
 /// - `video`: a size query, then its file loops ([`ScreenStorage::play_video`]
 ///   with [`Repeat::Loop`]);
 /// - `album`: a storage info query, then the level stored with the last
-///   plan B when the user chose one ([`RecordedChoice::brightness`]), the
+///   plan B when the user chose one ([`StoredPlanB::brightness`]), the
 ///   plan B of `album` (start mode 1, no timer,
 ///   [`ScreenStorage::set_options`], which carries that level) and
 ///   [`ScreenStorage::restart`];
 /// - a video that is gone or an album without a card: `turn_off_now`
 ///   instead ([`Applied::TurnedOffInstead`]).
 ///
-/// The OPTIONS and RESTART run under the confirmation the user gave when
-/// the choice was recorded (D-2026-10-03-power-off-standby-2 (5)), which
-/// only a [`RecordedChoice`] carries. A family without the choice:
-/// `Unsupported`, nothing sent.
-pub fn at_shutdown(link: &mut dyn ScreenLink, choice: &RecordedChoice) -> Result<Applied> {
+/// The choice is read here, from the catalog, and never comes from the
+/// caller's hands: the OPTIONS and RESTART run under the confirmation the
+/// user gave when [`choose`] recorded it (D-2026-10-03-power-off-standby-2
+/// (5)), the one use case that records a choice, and only after
+/// `Confirm::Yes`. What this guarantees ends at the port: the core cannot
+/// tell the shared catalog from a store an adapter fills by itself, so
+/// that every choice a store holds was confirmed rests on the writers of
+/// the catalog and on code review (D-2026-10-03-power-off-standby-6 (3)).
+/// Neither the choice as the shutdown takes it nor its reading is public:
+///
+/// ```compile_fail
+/// use bezel_core::domain::standby::RecordedChoice;
+/// ```
+///
+/// ```compile_fail
+/// use bezel_core::app::standby::recorded_choice;
+/// ```
+///
+/// The store is only read. A family without the choice: `Unsupported`,
+/// nothing sent.
+pub fn at_shutdown(
+    link: &mut dyn ScreenLink,
+    store: &mut dyn ArchiveStore,
+    key: &ScreenKey,
+) -> Result<Applied> {
+    let choice = recorded_choice(store, key)?;
     let standby = choice.standby();
     if *standby == Standby::Keep {
         return Ok(Applied::Nothing);
@@ -239,7 +258,7 @@ pub fn at_shutdown(link: &mut dyn ScreenLink, choice: &RecordedChoice) -> Result
             Ok(Applied::TurnedOff)
         }
         Standby::Video(path) => loop_video(link, path),
-        Standby::Album => restart_into_album(link, choice),
+        Standby::Album => restart_into_album(link, &choice),
     }
 }
 

@@ -35,7 +35,7 @@ use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 use bezel_core::app::discover_screens;
-use bezel_core::app::standby::{at_shutdown, recorded_choice};
+use bezel_core::app::standby::at_shutdown;
 use bezel_core::domain::archive::{Catalog, ScreenKey};
 use bezel_core::domain::device::DeviceModel;
 use bezel_core::domain::discovery::{Screen, ScreenState};
@@ -331,20 +331,13 @@ impl Backend {
     }
 
     /// Applies the choice the catalog records for the screen behind `link`
-    /// (keyed by its model, [`ScreenKey::new`]), read again by the core
-    /// ([`recorded_choice`], the only way to the choice [`at_shutdown`]
-    /// takes); `keep` sends nothing. A failure is said.
+    /// (keyed by its model, [`ScreenKey::new`]), which the core reads again
+    /// there ([`at_shutdown`] takes no choice from the studio); `keep` sends
+    /// nothing. A failure is said.
     fn apply(&self, link: &mut dyn ScreenLink) {
         let key = ScreenKey::new(link.identity().model.id);
-        let read = recorded_choice(&mut **self.storage.archive(), &key);
-        let Ok(choice) = read else {
-            diag::report(DiagCode::ShutdownCatalogNotRead);
-            return;
-        };
-        if *choice.standby() == Standby::Keep {
-            return;
-        }
-        if at_shutdown(link, &choice).is_err() {
+        let applied = at_shutdown(link, &mut **self.storage.archive(), &key);
+        if applied.is_err() {
             diag::report(DiagCode::ShutdownChoiceFailed);
         }
     }
