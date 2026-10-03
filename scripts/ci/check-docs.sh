@@ -86,6 +86,8 @@ BY_LANGUAGE = {
         "devices.md": ["not validated on hardware"],
         "fps.md": ["not validated on hardware"],
         "troubleshooting.md": ["unplug"],
+        # The firmware picks the file a start mode shows (protocol-turing-rev-c.md section 19).
+        "storage-and-video.md": ["first video of `sd/video`"],
         # The studio's labels, verbatim (src/i18n/en.js: standby.title, standby.choice.*).
         "power-off.md": ["When the computer shuts down", "**Leave as it is**",
                          "**Turn the screen off**", "**Play a video stored on the screen**",
@@ -96,6 +98,7 @@ BY_LANGUAGE = {
         "devices.md": ["não validado no hardware"],
         "fps.md": ["não validado no hardware"],
         "troubleshooting.md": ["desconecte"],
+        "storage-and-video.md": ["primeiro vídeo de `sd/video`"],
         # The studio's labels, verbatim (src/i18n/pt-BR.js).
         "power-off.md": ["Quando o computador desligar", "**Deixar como está**",
                          "**Apagar a tela**", "**Tocar um vídeo guardado na tela**",

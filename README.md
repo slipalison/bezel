@@ -146,7 +146,7 @@ bezel storage put logo.png sd/image/logo.png
 bezel storage play internal/video/clip.mp4   # the screen loops it itself (--once: plays it once)
 bezel storage stop
 bezel storage rm internal/video/clip.mp4 --yes
-bezel storage boot internal/video/clip.mp4 --brightness 60 --yes   # shown after power-up
+bezel storage boot internal/video/clip.mp4 --brightness 60 --yes   # start with a video: the first of sd/video
 bezel storage boot default --yes          # back to the built-in start screen
 ```
 
@@ -167,6 +167,9 @@ bezel storage boot default --yes          # back to the built-in start screen
   files, largest first, to choose from.
 - **Boot media.** Rev C screens store the boot choice together with the
   brightness they boot with: `--brightness`, else the vendor default (about 67%).
+  The choice is a start setting and the screen picks the file (measured on the
+  8.8"): a picture makes it show every picture of `sd/image` in turn, a video
+  makes it play the first video of `sd/video`, not necessarily the one named.
   On the Turing USB generation Bezel cannot yet delete files, play a video once
   or change the boot media; `bezel` says so.
 - **Storage manager.** Bezel keeps a local copy of every file it sends
