@@ -418,12 +418,15 @@ export function createStandbyPanel({ root, t, locale, bridge, notify, context, s
 
     async function reload() {
       status.textContent = t('standby.album.loading');
+      // Adding waits for the listing, which says what a name would replace.
+      add.disabled = true;
       try {
         photos = albumPhotos(await bridge.managerOverview(key));
         status.textContent = '';
       } catch (e) {
         status.textContent = t('standby.album.loadError', { message: errorText(t, e) });
       }
+      add.disabled = false;
       draw();
     }
 
@@ -456,7 +459,7 @@ export function createStandbyPanel({ root, t, locale, bridge, notify, context, s
         status.textContent = errorText(t, e);
       }
       if (!source) return;
-      const added = await askAdd(standing, source, photos);
+      const added = await askAdd(standing, source, photos, { stale: () => void reload() });
       if (!added) return;
       notify(t('standby.add.added', { name: added.name }));
       storageChanged();
@@ -471,8 +474,14 @@ export function createStandbyPanel({ root, t, locale, bridge, notify, context, s
   /**
    * The preview of `source` framed for the screen of `target` (`{key, model,
    * orientation}`), its fit and name, and Send: `{name}` once sent, else `null`.
+   * A name among `photos` is sent as a replacement only after its own
+   * confirmation (the danger button); the app checks the card's listing
+   * too, and a name it says is taken (`notConfirmed`) turns the dialog into
+   * that confirmation, `stale` telling the album its list was not current.
    */
-  async function askAdd({ key, model, orientation }, source, photos) {
+  async function askAdd({ key, model, orientation }, source, photos, { stale = () => {} } = {}) {
+    // The names the album has, as far as this dialog knows.
+    const taken = [...photos];
     const file = source.split(/[/\\]/).pop();
     const m = modal(t('standby.add.title', { name: file }), { wide: true });
     const shape = screenShape(model, orientation);
@@ -524,24 +533,31 @@ export function createStandbyPanel({ root, t, locale, bridge, notify, context, s
     const send = m.button('ok', t('standby.add.send'), 'primary', async () => {
       const { name, problem } = albumName(input.value);
       if (problem) return false;
+      const replace = Boolean(albumClash(taken, name));
       send.disabled = true;
       error.textContent = '';
       previewNote.textContent = t('standby.add.sending');
       try {
-        await bridge.albumAdd(key, source, fit, name, true);
+        await bridge.albumAdd(key, source, fit, name, true, replace);
         sent = { name };
         return true;
       } catch (e) {
-        error.textContent = errorText(t, e);
-        send.disabled = false;
         previewNote.textContent = '';
+        if (e?.code === 'notConfirmed' && !replace) {
+          // The card has that name: replacing it is asked first.
+          taken.push({ name });
+          stale();
+        } else {
+          error.textContent = errorText(t, e);
+        }
+        check();
         return false;
       }
     });
 
     function check() {
       const { name, problem } = albumName(input.value);
-      const replaces = problem ? null : albumClash(photos, name);
+      const replaces = problem ? null : albumClash(taken, name);
       target.textContent = problem ? planRefusalText(t, locale(), problem) : t('standby.add.sendsTo', { path: albumPath(name) });
       target.classList.toggle('field-error', Boolean(problem));
       input.setAttribute('aria-invalid', String(Boolean(problem)));

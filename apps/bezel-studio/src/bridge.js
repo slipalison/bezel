@@ -233,10 +233,13 @@ export const PROGRESS_EVENT = 'storage-progress';
 // (D-2026-10-03-power-off-standby-2, -4, -6). Every call takes the screen's
 // key like the storage tab's; the choice is kept in the catalog the CLI
 // shares (`ScreenRecord.standby`, keyed by model and the user's name for the
-// screen). Nothing is written nor recorded without `confirmed`. Errors
-// reject like every command, as `{code, args, message}` (`notConfirmed`,
-// `unsupported`, `invalidInput`, `screenNotFound`, `busy`, ...); no code is
-// new. The album is listed with `managerOverview` (its `sd`/`image` files:
+// screen). Nothing is written nor recorded without `confirmed`; a photo
+// replaces one of the same name only with `replace` too, its own
+// confirmation, which the app checks against the card's listing like the
+// storage tab's uploads. Errors reject like every command, as `{code, args,
+// message}` (`notConfirmed`, `unsupported`, `invalidInput`,
+// `screenNotFound`, `busy`, ...); no code is new. The album is listed with
+// `managerOverview` (its `sd`/`image` files:
 // the listing `managerThumbnail` answers for) and its photos deleted with
 // `deleteStored`.
 /**
@@ -471,10 +474,12 @@ function tauriBridge(invoke, tauri = {}) {
     /**
      * Sends the photo, framed like its preview, to the card album as
      * `sd/image/<name>` (a `.png` of the panel's size), only with
-     * `confirmed`, which also replaces a photo of that name; nothing is sent
-     * without a card. @returns {Promise<AlbumAddedDto>}
+     * `confirmed`; a photo of that name is replaced only with `replace`
+     * (the answer to replacing it), else the call rejects `notConfirmed`
+     * (`detail`: `replacing sd/image/<name>`) and nothing is sent. Nothing is
+     * sent without a card. @returns {Promise<AlbumAddedDto>}
      */
-    albumAdd: (screen, source, fit, name, confirmed) => invoke('album_add', { screen, source, fit, name, confirmed }),
+    albumAdd: (screen, source, fit, name, confirmed, replace = false) => invoke('album_add', { screen, source, fit, name, confirmed, replace }),
     setUnsaved: (unsaved) => invoke('set_unsaved', { unsaved }),
     closeWindow: () => invoke('close_window'),
     quitApp: () => invoke('quit_app'),

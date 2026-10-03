@@ -338,6 +338,16 @@ test.describe('standby', () => {
     await name.press('Enter');
     await expect(add).toHaveCount(0);
     await expect(photosIn(album, t)).toHaveCount(2);
+
+    // Replacing the namesake is its own confirmation, the danger button (D-2026-10-03-power-off-standby-4 (3)).
+    await addButton.click();
+    await expect(frame).toHaveAttribute('data-state', 'ready');
+    const replace = add.getByRole('button', { name: t('standby.add.replace') });
+    await expect(replace).toHaveClass(/danger-button/);
+    await replace.click();
+    await expect(add).toHaveCount(0);
+    await expect(toast(page)).toHaveText(t('standby.add.added', { name: 'praia_do_forte.png' }));
+    await expect(photosIn(album, t)).toHaveCount(2);
     await page.keyboard.press('Escape');
     await expect(album).toHaveCount(0);
     expect(await written(page)).toHaveLength(1);

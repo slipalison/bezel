@@ -42,7 +42,7 @@ use crate::manager::{
 };
 use crate::media::{BACKGROUND_EXTENSIONS, IMAGE_EXTENSIONS, MEDIA_EXTENSIONS};
 use crate::messages::{ErrorCode, UiError, UiResult};
-use crate::standby::{Asked, PHOTO_EXTENSIONS};
+use crate::standby::{Asked, PHOTO_EXTENSIONS, PhotoAsked};
 use crate::storage::ProgressThrottle;
 use crate::studio::Motion;
 use crate::tray::{LiveItem, TrayMenu};
@@ -688,7 +688,8 @@ pub async fn album_preview(
 
 /// Sends the photo `source`, framed like its preview, to the album of
 /// `screen` as `name`; `confirmed` comes from the dialog that showed it and
-/// named it (it also covers replacing a photo of that name).
+/// named it, and `replace` from its own confirmation of replacing a photo
+/// of that name (D-2026-10-03-power-off-standby-4 (3)).
 #[tauri::command]
 pub async fn album_add(
     state: State<'_, Shared>,
@@ -697,10 +698,16 @@ pub async fn album_add(
     fit: String,
     name: String,
     confirmed: bool,
+    replace: bool,
 ) -> UiResult<AlbumAddedDto> {
+    let asked = PhotoAsked {
+        source: PathBuf::from(source),
+        fit,
+        name,
+        replace: confirm_of(replace),
+    };
     blocking(&state, move |b| {
-        let confirm = confirm_of(confirmed);
-        b.album_add(&screen, &PathBuf::from(source), &fit, &name, confirm, now())
+        b.album_add(&screen, &asked, confirm_of(confirmed), now())
     })
     .await
 }

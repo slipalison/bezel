@@ -179,10 +179,11 @@ export function createDemoStandby({ chosen, screens, storage, orientationOf, den
     },
     /**
      * Sends the framed photo to the card album as a PNG of the panel's size
-     * (`album_add`), only with `confirmed` (which also replaces a photo of
-     * that name); without a card nothing is sent.
+     * (`album_add`), only with `confirmed`; a photo of that name is replaced
+     * only with `replace` too (`notConfirmed` otherwise, like the app's
+     * check of the card's listing); without a card nothing is sent.
      */
-    albumAdd: (key, source, fit, name, confirmed) => {
+    albumAdd: (key, source, fit, name, confirmed, replace = false) => {
       const { screen, error } = changeable(key);
       if (error) return Promise.reject(error);
       if (!storage.card()) return Promise.reject(refusal('unsupported', 'not supported: the album needs an SD card in the screen', { detail: 'the album needs an SD card in the screen' }));
@@ -191,9 +192,10 @@ export function createDemoStandby({ chosen, screens, storage, orientationOf, den
       const typed = albumName(String(name ?? ''));
       if (typed.problem) return Promise.reject(refusal('invalidInput', `invalid input: the name "${name}"`, { detail: `the name "${name}"` }));
       if (!confirmed) return Promise.reject(refusal('notConfirmed', `adding ${typed.name} to the album needs confirmation`, { detail: `adding ${typed.name} to the album` }));
+      const path = albumPath(typed.name);
+      if (storage.files().has(path) && !replace) return Promise.reject(refusal('notConfirmed', `replacing ${path} needs confirmation`, { detail: `replacing ${path}` }));
       const { width, height } = modelOf(screen);
       const bytes = Math.round(width * height * PNG_BYTES_PER_PIXEL);
-      const path = albumPath(typed.name);
       storage.storePhoto(path, bytes, source);
       return Promise.resolve({ path, bytes });
     },

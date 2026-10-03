@@ -353,8 +353,14 @@ test('the demo adds a photo to the card album only when confirmed, cataloged wit
   const after = albumPhotos(await demo.managerOverview(SCREEN));
   assert.deepEqual(after.map((p) => [p.path, p.size]), [['sd/image/praia.png', added.bytes]]);
   assert.match(await demo.managerThumbnail(SCREEN, 'sd/image/praia.png'), /^data:image\/svg\+xml,/);
-  // The same name again replaces it (the confirmation covers it).
-  await demo.albumAdd(SCREEN, photo, 'contain', 'praia.png', true);
+  // The same name again needs the confirmation of replacing it (D-2026-10-03-power-off-standby-4 (3)):
+  // without it nothing is sent, whatever the window knew.
+  await assert.rejects(
+    demo.albumAdd(SCREEN, photo, 'contain', 'praia.png', true),
+    (e) => e.code === 'notConfirmed' && e.args.detail === 'replacing sd/image/praia.png',
+  );
+  await assert.rejects(demo.albumAdd(SCREEN, photo, 'contain', 'praia.png', true, false), (e) => e.code === 'notConfirmed');
+  await demo.albumAdd(SCREEN, photo, 'contain', 'praia.png', true, true);
   assert.equal(albumPhotos(await demo.managerOverview(SCREEN)).length, 1);
   // Removing is the confirmed delete of today.
   await demo.deleteStored(SCREEN, 'sd/image/praia.png', true);
@@ -401,6 +407,7 @@ test('tauri mode maps the standby calls to their commands, with their arguments'
   await bridge.pickPhoto();
   await bridge.albumPreview('k', '/home/me/praia.jpg', 'contain');
   await bridge.albumAdd('k', '/home/me/praia.jpg', 'cover', 'praia.png', true);
+  await bridge.albumAdd('k', '/home/me/praia.jpg', 'contain', 'praia.png', true, true);
   assert.deepEqual(calls, [
     ['standby_overview', { screen: 'k' }],
     ['set_standby', { screen: 'k', choice: 'off', sleepMinutes: 5, file: null, confirmed: true }],
@@ -408,7 +415,8 @@ test('tauri mode maps the standby calls to their commands, with their arguments'
     ['set_standby', { screen: 'k', choice: 'keep', sleepMinutes: null, file: null, confirmed: true }],
     ['pick_photo', undefined],
     ['album_preview', { screen: 'k', source: '/home/me/praia.jpg', fit: 'contain' }],
-    ['album_add', { screen: 'k', source: '/home/me/praia.jpg', fit: 'cover', name: 'praia.png', confirmed: true }],
+    ['album_add', { screen: 'k', source: '/home/me/praia.jpg', fit: 'cover', name: 'praia.png', confirmed: true, replace: false }],
+    ['album_add', { screen: 'k', source: '/home/me/praia.jpg', fit: 'contain', name: 'praia.png', confirmed: true, replace: true }],
   ]);
 });
 

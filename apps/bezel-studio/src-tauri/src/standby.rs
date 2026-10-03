@@ -15,10 +15,14 @@
 //! The choice lives in the catalog the CLI shares (`ScreenRecord.standby`,
 //! keyed by the screen's model, [`ScreenKey::new`], as the shutdown reads it
 //! in [`crate::power`]), read again at every call: a choice the CLI made
-//! while the studio runs shows. Changing it, and adding a photo (replacing
-//! one of the same name included), takes the user's [`Confirm`], the answer
-//! of the UI's dialog that says what is written; with `Confirm::No` nothing
-//! reaches any screen and nothing is recorded. The album's photos are listed
+//! while the studio runs shows. Changing it, and adding a photo, takes the
+//! user's [`Confirm`], the answer of the UI's dialog that says what is
+//! written; with `Confirm::No` nothing reaches any screen and nothing is
+//! recorded. Replacing a photo of the same name takes a confirmation of its
+//! own ([`PhotoAsked::replace`]), which this side checks against the card's
+//! listing, as the storage tab and the CLI do (D-2026-10-03-power-off-
+//! standby-4 (3)): without it a name the album has is `notConfirmed` and
+//! nothing is sent. The album's photos are listed
 //! by the storage manager's `manager_overview`, whose listing
 //! `manager_thumbnail` answers for (a photo Bezel sent shows its local
 //! copy), and removed by the storage tab's `delete_stored` (a confirmed
@@ -112,6 +116,23 @@ impl Asked {
             .map(|m| u8::try_from(m).unwrap_or(u8::MAX));
         Ok(Standby::from_parts(choice, minutes, self.file.as_deref())?)
     }
+}
+
+/// A photo as the window asks to add it to the album (`album_add`'s
+/// `source`, `fit`, `name` and `replace`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PhotoAsked {
+    /// The photo on this computer.
+    pub source: PathBuf,
+    /// `cover` (Fill) or `contain` (Fit).
+    pub fit: String,
+    /// Its name in the album, a `.png`.
+    pub name: String,
+    /// The user's answer to replacing the album's photo of that name, which
+    /// the dialog asks apart (D-2026-10-03-power-off-standby-4 (3)): without
+    /// `Confirm::Yes`, a name the card's listing has is `notConfirmed`
+    /// (`replacing sd/image/<name>`) and nothing is sent.
+    pub replace: Confirm,
 }
 
 /// How a screen can be reached for its choice, as discovery and the session
@@ -356,25 +377,25 @@ impl Backend {
         Ok(data_url(&png))
     }
 
-    /// Sends the photo at `source`, framed by `fit` like its preview, to the
-    /// card's album of `screen` as `name` (a PNG of the panel's size):
-    /// `confirm` is the user's answer to the dialog that showed it and named
-    /// it, which also covers replacing a photo of that name. With
-    /// `Confirm::No` nothing reaches the screen; without a card nothing is
-    /// sent. Recorded in the catalog with its local copy, like every upload.
+    /// Sends the photo `asked` (its `source` framed by its `fit` like its
+    /// preview) to the card's album of `screen` as its `name` (a PNG of the
+    /// panel's size): `confirm` is the user's answer to the dialog that
+    /// showed it and named it. With `Confirm::No` nothing reaches the
+    /// screen; without a card nothing is sent. A name the album has already
+    /// is replaced only with [`PhotoAsked::replace`]: else `notConfirmed`,
+    /// after the listing only. Recorded in the catalog with its local copy,
+    /// like every upload.
     pub fn album_add(
         &self,
         screen: &str,
-        source: &Path,
-        fit: &str,
-        name: &str,
+        asked: &PhotoAsked,
         confirm: Confirm,
         time: LocalTime,
     ) -> UiResult<AlbumAddedDto> {
         let found = self.changeable(screen)?;
-        let picture = read_photo(source)?;
-        let fit = fit_of(fit)?;
-        let name = album_name(name)?;
+        let picture = read_photo(&asked.source)?;
+        let fit = fit_of(&asked.fit)?;
+        let name = album_name(&asked.name)?;
         if confirm == Confirm::No {
             let detail = format!("adding {name} to the album");
             return Err(UiError::new(ErrorCode::NotConfirmed).arg("detail", detail));
@@ -390,7 +411,7 @@ impl Backend {
             let orientation = self.standing(screen, found.as_ref(), model);
             let png = photo::album_png(&picture, model, orientation, fit)?;
             let file = self.write_album_png(&name, &png)?;
-            let sent = self.send_to_album(link, &file, &name, confirm);
+            let sent = self.send_to_album(link, &file, &name, asked.replace);
             // A copy left behind is written over by the next photo of the
             // name.
             let _ = std::fs::remove_file(&file);
@@ -409,14 +430,16 @@ impl Backend {
     }
 
     /// Sends the PNG `file` to the album as `name` (the claim held): the
-    /// storage tab's preflight, then the core's recorded upload, which the
-    /// shutdown can cancel.
+    /// storage tab's preflight, which lists the album, then the core's
+    /// recorded upload, which the shutdown can cancel and which replaces a
+    /// photo of that name only with `replace` (`NotConfirmed` before a byte
+    /// is sent otherwise).
     fn send_to_album(
         &self,
         link: &mut dyn ScreenLink,
         file: &Path,
         name: &FileName,
-        confirm: Confirm,
+        replace: Confirm,
     ) -> UiResult<AlbumAddedDto> {
         let request = UploadRequest {
             source: MediaLocation(file.display().to_string()),
@@ -434,7 +457,7 @@ impl Backend {
         let sent = Manager::new(link, store.as_mut()).upload(
             media,
             &prepared,
-            confirm,
+            replace,
             unix_seconds(),
             &mut job,
         );

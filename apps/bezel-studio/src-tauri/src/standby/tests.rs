@@ -101,6 +101,8 @@ impl Setup {
         self.f.backend.set_standby(KEY, asked, confirm, TIME)
     }
 
+    /// Adds `photo` to the album as `name`, `confirm` being the answer to
+    /// the dialog; a photo of that name is not replaced.
     fn add(
         &self,
         photo: &Path,
@@ -108,9 +110,15 @@ impl Setup {
         name: &str,
         confirm: Confirm,
     ) -> UiResult<AlbumAddedDto> {
-        self.f
-            .backend
-            .album_add(KEY, photo, fit, name, confirm, TIME)
+        let asked = asked_photo(photo, fit, name, Confirm::No);
+        self.f.backend.album_add(KEY, &asked, confirm, TIME)
+    }
+
+    /// Adds `photo` to the album as `name`, the dialog and the replacement
+    /// of a photo of that name both confirmed.
+    fn replace(&self, photo: &Path, name: &str) -> UiResult<AlbumAddedDto> {
+        let asked = asked_photo(photo, "cover", name, Confirm::Yes);
+        self.f.backend.album_add(KEY, &asked, Confirm::Yes, TIME)
     }
 
     /// Storage calls that change what the screen stores, shows or keeps.
@@ -139,6 +147,16 @@ impl Setup {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         photo.save(&path).unwrap();
         path
+    }
+}
+
+/// A photo as the window asks to add it.
+fn asked_photo(photo: &Path, fit: &str, name: &str, replace: Confirm) -> PhotoAsked {
+    PhotoAsked {
+        source: photo.to_path_buf(),
+        fit: fit.into(),
+        name: name.into(),
+        replace,
     }
 }
 
@@ -512,17 +530,34 @@ fn removing_a_photo_from_the_album_asks_first() {
     assert!(album.files.is_empty());
 }
 
-/// A photo of a name the album has replaces it with the confirmation; a
-/// screen without a card offers no album and gets nothing.
+/// D-2026-10-03-power-off-standby-4 (3), review B2 of iteration 1: this
+/// side decides whether a photo replaces another, from the card's listing,
+/// whatever the window knew. A name the album has is refused without the
+/// confirmation of replacing it, the dialog's own confirmation given
+/// (`notConfirmed`, after queries only: the photo on the card and the
+/// catalog stay); with it, the photo replaces its namesake. A screen
+/// without a card offers no album and gets nothing.
 #[test]
-fn a_photo_replaces_its_namesake_and_nothing_goes_without_a_card() {
+fn a_photo_replaces_its_namesake_only_when_asked_and_nothing_goes_without_a_card() {
     const BEACH: &str = "sd/image/beach.png";
     let storage = FakeStorage::default()
         .with_card(CARD)
         .with_file(remote_path(BEACH), vec![9; 50]);
     let s = Setup::new("replace", storage);
     let photo = s.wide_photo("beach.png");
-    s.add(&photo, "cover", "beach.png", Confirm::Yes).unwrap();
+    let before = s.catalog();
+    let err = s
+        .add(&photo, "cover", "beach.png", Confirm::Yes)
+        .unwrap_err();
+    assert_eq!(
+        (err.code(), err.value("detail")),
+        ("notConfirmed", Some("replacing sd/image/beach.png"))
+    );
+    assert!(s.writes().is_empty(), "nothing sent: {:?}", s.writes());
+    assert_eq!(s.f.storage().files[&remote_path(BEACH)], vec![9; 50]);
+    assert_eq!(s.catalog(), before, "nothing recorded");
+
+    s.replace(&photo, "beach.png").unwrap();
     let stored = &s.f.storage().files[&remote_path(BEACH)];
     assert_eq!(picture(stored).size(), Size::new(480, 1920), "replaced");
     assert!(
@@ -582,9 +617,10 @@ fn screens_asleep_or_of_another_family_are_never_opened() {
         (err.code(), err.value("detail")),
         ("unsupported", Some(ASLEEP))
     );
+    let asked = asked_photo(&photo, "cover", "beach.png", Confirm::Yes);
     let err =
         s.f.backend
-            .album_add(MCU, &photo, "cover", "beach.png", Confirm::Yes, TIME)
+            .album_add(MCU, &asked, Confirm::Yes, TIME)
             .unwrap_err();
     assert_eq!(err.code(), "unsupported");
     let preview = previewed(&s.f.backend.album_preview(MCU, &photo, "cover").unwrap());
