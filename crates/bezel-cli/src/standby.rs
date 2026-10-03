@@ -477,7 +477,11 @@ where
     let mut link = connect(bus, connector, &args.target)?;
     let model = link.identity().model;
     let key = ScreenKey::new(model.id);
-    if standby == Standby::Keep && recorded_choice(kit.archive, &key)? == Standby::Keep {
+    // A family without the choice is refused by the core below, keep too.
+    if standby == Standby::Keep
+        && supports(model)
+        && recorded_choice(kit.archive, &key)? == Standby::Keep
+    {
         return Ok(format!(
             "{}: already {}; nothing was sent or recorded\n",
             model.name,
@@ -1120,6 +1124,16 @@ mod tests {
                 "10",
                 "--yes",
             ],
+            &turing_usb_bus(),
+            &usb,
+            &mut archive,
+        );
+        let err = out.unwrap_err().to_string();
+        assert!(err.contains("rev C screens only"), "{err}");
+        // keep too (review W9 of iteration 1): such a screen keeps no
+        // choice, not even "as it is".
+        let (out, _) = standby_on(
+            &["bezel", "standby", "set", "keep", "--yes"],
             &turing_usb_bus(),
             &usb,
             &mut archive,
