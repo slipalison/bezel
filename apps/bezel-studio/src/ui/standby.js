@@ -18,8 +18,8 @@ import { createConfirm } from './storage.js';
 import { errorText } from '../messages.js';
 import { formatBytes, planRefusalText } from '../storage-manager.js';
 import {
-  CHOICES, PHOTO_FITS, activation, albumClash, albumName, albumPath, albumPhotos, complete, confirmationOf, currentDetail, dialogDefaults,
-  minutesText, offered, optionOf, requestOf, screenShape, sleepChoices, suggestPhotoName, translate, videoGroups,
+  CHOICES, PHOTO_FITS, activation, albumClash, albumName, albumPath, albumPhotos, complete, confirmationOf, createAnswers, currentDetail,
+  dialogDefaults, minutesText, offered, optionOf, requestOf, screenShape, sleepChoices, suggestPhotoName, translate, videoGroups,
 } from '../standby.js';
 
 /** The icon of each choice. */
@@ -113,7 +113,9 @@ function createPopovers() {
  * @param {() => void} [deps.storageChanged] the album changed what the screen stores
  */
 export function createStandbyPanel({ root, t, locale, bridge, notify, context, storageChanged = () => {} }) {
-  const view = { key: null, signature: '', shown: false, status: 'idle', data: null, error: null, busy: false, problem: null, loads: 0 };
+  const view = { key: null, signature: '', shown: false, status: 'idle', data: null, error: null, busy: false, problem: null };
+  // Which answer about the screen shown is the newest: a reading or a write.
+  const answers = createAnswers();
   const popovers = createPopovers();
   const confirm = createConfirm(t, { refocus: () => focusRadio(view.data?.choice ?? 'keep') });
   const screen = () => context().screen;
@@ -125,15 +127,15 @@ export function createStandbyPanel({ root, t, locale, bridge, notify, context, s
     const current = screen();
     if (!current) return render();
     const key = current.key;
-    const token = (view.loads += 1);
+    const ticket = answers.reading();
     if (view.key !== key || !view.data) view.status = 'loading';
     render();
     try {
       const data = await bridge.standbyOverview(key);
-      if (token !== view.loads) return;
+      if (!answers.newest(ticket)) return;
       Object.assign(view, { data, status: 'ready', error: null });
     } catch (e) {
-      if (token !== view.loads) return;
+      if (!answers.newest(ticket)) return;
       Object.assign(view, { status: 'error', error: e });
     }
     render();
@@ -350,12 +352,14 @@ export function createStandbyPanel({ root, t, locale, bridge, notify, context, s
   /**
    * Writes `request` to the screen `key` (the one shown when it was asked).
    * Its answer is drawn only while that screen is still the one shown, and
-   * only if no reading of it started since (a newer answer wins).
+   * only if no reading of it started since (a newer answer wins). Written
+   * for a screen no longer shown, it leaves the reading of the shown one
+   * alone.
    */
   async function write(request, key = view.key) {
-    const token = (view.loads += 1);
+    const ticket = answers.writing(key, view.key);
     view.busy = true;
-    view.problem = null;
+    if (view.key === key) view.problem = null;
     render();
     let data = null;
     let problem = null;
@@ -367,7 +371,7 @@ export function createStandbyPanel({ root, t, locale, bridge, notify, context, s
     }
     view.busy = false;
     const same = view.key === key;
-    if (same && data && token === view.loads) Object.assign(view, { data, status: 'ready', error: null });
+    if (same && data && answers.newest(ticket)) Object.assign(view, { data, status: 'ready', error: null });
     if (same) view.problem = problem;
     render();
     if (same) focusRadio(view.data?.choice ?? request.choice);

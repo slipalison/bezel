@@ -220,3 +220,23 @@ export function albumClash(photos, name) {
 
 /** The album's path of a photo named `name`. */
 export const albumPath = (name) => `${ALBUM.medium}/${ALBUM.kind}/${name}`;
+
+/**
+ * Which answer about the screen shown is the newest, so that an older one is
+ * never drawn over it: each reading of the screen shown takes a ticket, and
+ * so does a write while its screen is the one shown (it outdates a reading
+ * in flight). A write for another screen (the one a dialog was opened for,
+ * since replaced at the top) takes none: the reading of the screen shown now
+ * is still drawn, and that write's answer never is.
+ */
+export function createAnswers() {
+  let latest = 0;
+  return {
+    /** A reading of the screen shown starts: its ticket. */
+    reading: () => (latest += 1),
+    /** A write for `key` starts while `shown` is shown: its ticket, `null` for another screen. */
+    writing: (key, shown) => (key === shown ? (latest += 1) : null),
+    /** Whether the answer of `ticket` is still the newest. */
+    newest: (ticket) => ticket !== null && ticket === latest,
+  };
+}

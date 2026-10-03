@@ -13,8 +13,9 @@ import { createDemoBackend } from '../../src/demo-backend.js';
 import { DEMO_PICKED_PHOTO } from '../../src/demo-data.js';
 import { DEMO_START_MODES, demoAlbumPicture, demoBootStartMode, demoPhotoBox, demoPlanB } from '../../src/demo-standby.js';
 import {
-  ALBUM, CHOICES, PHOTO_FITS, REASONS, SLEEP, activation, albumClash, albumName, albumPath, albumPhotos, complete, confirmationOf, currentDetail,
-  dialogDefaults, minutesText, offered, optionOf, requestOf, screenShape, sleepChoices, sleepMinutesOf, suggestPhotoName, translate, videoGroups,
+  ALBUM, CHOICES, PHOTO_FITS, REASONS, SLEEP, activation, albumClash, albumName, albumPath, albumPhotos, complete, confirmationOf, createAnswers,
+  currentDetail, dialogDefaults, minutesText, offered, optionOf, requestOf, screenShape, sleepChoices, sleepMinutesOf, suggestPhotoName, translate,
+  videoGroups,
 } from '../../src/standby.js';
 
 const pt = translator('pt-BR');
@@ -80,6 +81,28 @@ test('activating an option: refused, nothing (keep to keep), the album manager, 
   assert.equal(activation(album, 'keep'), 'ask', 'keep undoes another choice, after the confirmation');
   assert.equal(activation(overviewOf('off', {}, { sleepMinutes: 5 }), 'off'), 'ask', 'off again: other minutes');
   assert.equal(activation(overviewOf('video', {}, { file: 'sd/video/chuva.mp4' }), 'video'), 'ask', 'video again: another video');
+});
+
+test('a write for a screen no longer shown leaves the reading of the shown one to be drawn', () => {
+  // Review W2 of iteration 2: two rev C screens. A is shown and read; its
+  // confirmation opens; B is chosen at the top and read; then A's is answered.
+  const answers = createAnswers();
+  const ofA = answers.reading();
+  const ofB = answers.reading();
+  assert.equal(answers.newest(ofA), false, "A's reading is not drawn on B");
+  const forA = answers.writing('A', 'B');
+  assert.equal(answers.newest(ofB), true, "A's write left B's section loading");
+  assert.equal(answers.newest(forA), false, "A's answer is drawn on B");
+
+  // A write for the screen shown outdates its reading in flight; a reading
+  // that starts after it is newer still.
+  const before = answers.reading();
+  const forB = answers.writing('B', 'B');
+  assert.equal(answers.newest(before), false);
+  assert.equal(answers.newest(forB), true);
+  const after = answers.reading();
+  assert.equal(answers.newest(forB), false);
+  assert.equal(answers.newest(after), true);
 });
 
 test('the sleep timer takes 1 to 10 whole minutes, 5 suggested', () => {
