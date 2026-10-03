@@ -746,7 +746,7 @@ mod tests {
     use bezel_core::domain::archive::Catalog;
     use bezel_core::domain::device::ModelId;
     use bezel_core::domain::storage::{RemotePath, StartMode};
-    use bezel_devices::fake::{FakeStorage, StorageCall};
+    use bezel_devices::fake::{FakeStorage, Kept, StorageCall};
     use bezel_devices::{FakeBus, FakeConnector};
     use bezel_media::FfmpegTranscoder;
     use bezel_media::archive::MemoryArchive;
@@ -861,7 +861,54 @@ mod tests {
         let screen = connector.log();
         assert_eq!(screen.connects, 0, "not even opened");
         assert!(screen.storage.calls.is_empty());
+        assert!(screen.kept.is_empty(), "{:?}", screen.kept);
+        assert!(screen.brightness.is_empty());
         assert_eq!(archive.load().unwrap(), Catalog::default());
+    }
+
+    /// DoD row 5 (critic of iteration 1), D-2026-10-03-power-off-standby-2
+    /// (3): with --yes the level of --brightness reaches the screen first,
+    /// then the plan B, whose OPTIONS carries that level, so the screen
+    /// starts with it; the fake screen keeps both in one ordered log.
+    /// Without --brightness the plan B alone goes, at the link's level
+    /// (none set: the vendor's default).
+    #[test]
+    fn set_with_yes_sends_the_brightness_then_the_plan_b() {
+        let connector = screen_with_card();
+        let mut archive = MemoryArchive::new();
+        let (out, _) = standby(
+            &[
+                "bezel",
+                "standby",
+                "set",
+                "album",
+                "--brightness",
+                "40",
+                "--yes",
+            ],
+            &connector,
+            &mut archive,
+        );
+        assert!(out.unwrap().contains("plan B stored on the screen"));
+        let forty = Brightness::new(40).unwrap();
+        let album = PlanB::new(StartMode::Image, 0);
+        assert_eq!(
+            connector.log().kept,
+            [Kept::Brightness(forty), Kept::Options(album, Some(forty))]
+        );
+        assert_eq!(recorded(&mut archive), Standby::Album);
+
+        let connector = screen_with_card();
+        let (out, _) = standby(
+            &["bezel", "standby", "set", "off", "--sleep", "2", "--yes"],
+            &connector,
+            &mut archive,
+        );
+        out.unwrap();
+        assert_eq!(
+            connector.log().kept,
+            [Kept::Options(PlanB::new(StartMode::Default, 2), None)]
+        );
     }
 
     #[test]

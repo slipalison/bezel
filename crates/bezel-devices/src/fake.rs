@@ -205,6 +205,21 @@ pub struct FakeLog {
     pub restarts: Vec<String>,
     /// The simulated storage, shared by every screen of the connector.
     pub storage: FakeStorage,
+    /// What the screens keep for how they start, in the order it reached
+    /// them: one list across the link's levels and the storage's OPTIONS.
+    pub kept: Vec<Kept>,
+}
+
+/// What reached a simulated screen that it keeps for how it starts: each
+/// backlight level set and each plan B written, in order (`FakeLog::kept`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kept {
+    /// `set_brightness`.
+    Brightness(Brightness),
+    /// `set_options`: the plan B, and the backlight level its OPTIONS
+    /// carries, as the rev C driver writes it: the last level its link set
+    /// (`None`: none yet, so the vendor's default).
+    Options(PlanB, Option<Brightness>),
 }
 
 /// One call that reached a simulated screen's storage.
@@ -514,6 +529,7 @@ impl ScreenConnector for FakeConnector {
                 firmware: Some("simulated".into()),
             },
             orientation: Orientation::Portrait,
+            brightness: None,
             has_storage: matches!(model.family, Family::TuringRevC | Family::TuringUsb),
             log: Arc::clone(&self.log),
             script: Arc::clone(&self.script),
@@ -526,6 +542,8 @@ impl ScreenConnector for FakeConnector {
 pub struct FakeScreen {
     identity: ScreenIdentity,
     orientation: Orientation,
+    /// The last level this link set: what its OPTIONS carry.
+    brightness: Option<Brightness>,
     has_storage: bool,
     log: Arc<Mutex<FakeLog>>,
     script: Arc<Mutex<Script>>,
@@ -559,7 +577,11 @@ impl ScreenLink for FakeScreen {
     }
 
     fn set_brightness(&mut self, brightness: Brightness) -> Result<()> {
-        self.record(|l| l.brightness.push(brightness));
+        self.brightness = Some(brightness);
+        self.record(|l| {
+            l.brightness.push(brightness);
+            l.kept.push(Kept::Brightness(brightness));
+        });
         Ok(())
     }
 
@@ -681,7 +703,11 @@ impl ScreenStorage for FakeScreen {
         Ok(())
     }
 
+    /// Records the plan B, and in [`FakeLog::kept`] with the level this
+    /// link last set.
     fn set_options(&mut self, plan: PlanB, _confirmed: Confirmed) -> Result<()> {
+        let level = self.brightness;
+        self.record(|l| l.kept.push(Kept::Options(plan, level)));
         self.store(StorageCall::Options(plan), |s| {
             s.start_mode = Some(plan.start_mode);
             s.options = Some(plan);
