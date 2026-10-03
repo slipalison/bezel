@@ -654,8 +654,8 @@ pub struct StandbyDto {
     pub file: Option<String>,
     /// The four options, in the order `keep`, `off`, `video`, `album`.
     pub options: Vec<StandbyOptionDto>,
-    /// The videos stored on the screen, internal first (empty when it is
-    /// not awake).
+    /// The videos stored on the screen with their sizes, internal first
+    /// (empty when it is not awake).
     pub videos: Vec<StoredFileDto>,
     /// Whether the screen has a memory card (false when it is not awake).
     pub card: bool,
@@ -678,11 +678,7 @@ impl StandbyDto {
             sleep_minutes: standby.sleep_minutes().map(SleepMinutes::get),
             file: standby.file().map(ToString::to_string),
             options: options.iter().map(StandbyOptionDto::from).collect(),
-            videos: offer
-                .videos
-                .iter()
-                .map(|path| StoredFileDto::at(path, None))
-                .collect(),
+            videos: offer.videos.iter().map(StoredFileDto::from).collect(),
             card: offer.card,
             orientation: orientation_slug(orientation),
         }

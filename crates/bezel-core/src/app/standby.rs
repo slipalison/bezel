@@ -21,7 +21,8 @@ use crate::domain::standby::{
     unavailable,
 };
 use crate::domain::storage::{
-    Confirmed, Medium, Operation, Refusal, RemotePath, Repeat, StartMode, StorageLocation,
+    Confirmed, FileEntry, Medium, Operation, Refusal, RemotePath, Repeat, StartMode,
+    StorageLocation,
 };
 use crate::ports::{ArchiveStore, ScreenLink, ScreenStorage};
 use crate::{BezelError, Result};
@@ -83,8 +84,9 @@ fn record_of(store: &mut dyn ArchiveStore, key: &ScreenKey) -> Result<ScreenReco
 /// The choice of the screen behind `link` (keyed `key` in the catalog of
 /// `store`), its plan B, and the four options with why any cannot be chosen
 /// now. Rev C: queries only (storage info, then the listing of
-/// `internal/video` and, with a card, `sd/video`). Other families: every
-/// option `Unsupported`, nothing asked of the screen.
+/// `internal/video` and, with a card, `sd/video`, and each video's size).
+/// Other families: every option `Unsupported`, nothing asked of the
+/// screen.
 pub fn show(
     link: &mut dyn ScreenLink,
     store: &mut dyn ArchiveStore,
@@ -112,8 +114,9 @@ pub fn show(
     })
 }
 
-/// The card and the stored videos (internal first), by queries only; a
-/// card's folder is listed only with a card in (listing creates it).
+/// The card and the stored videos (internal first) with their sizes, by
+/// queries only; a card's folder is listed only with a card in (listing
+/// creates it).
 fn offer(storage: &mut dyn ScreenStorage) -> Result<Offer> {
     let info = storage.info()?;
     let mut videos = Vec::new();
@@ -122,8 +125,11 @@ fn offer(storage: &mut dyn ScreenStorage) -> Result<Offer> {
             continue;
         }
         let location = StorageLocation::new(medium, MediaKind::Video);
-        let names = storage.list(location)?;
-        videos.extend(names.into_iter().map(|n| RemotePath::new(location, n)));
+        for name in storage.list(location)? {
+            let path = RemotePath::new(location, name);
+            let size = presence(storage, &path)?.size();
+            videos.push(FileEntry { path, size });
+        }
     }
     Ok(Offer {
         card: info.card.is_some(),

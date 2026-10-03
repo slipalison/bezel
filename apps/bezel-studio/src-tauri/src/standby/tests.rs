@@ -288,10 +288,11 @@ fn a_choice_writes_its_plan_b_and_keep_undoes_it() {
         json["options"][2],
         serde_json::json!({"choice": "video", "enabled": true, "reason": null})
     );
+    // With its size, as the demo lists it (review W9 of iteration 1).
     assert_eq!(
         json["videos"][1],
         serde_json::json!({"path": "sd/video/rain.mp4", "medium": "sd", "kind": "video",
-            "name": "rain.mp4", "size": null})
+            "name": "rain.mp4", "size": 64})
     );
 
     let off = s.set(&ask("off", Some(5), None), Confirm::Yes).unwrap();

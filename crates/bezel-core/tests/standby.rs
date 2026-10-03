@@ -609,11 +609,19 @@ fn show_reads_the_choice_and_offers_what_the_screen_has() {
     assert_eq!(shown.standby, Standby::Off(minutes(4)));
     assert_eq!(shown.plan_b.plan, PlanB::new(StartMode::Default, 4));
     assert!(shown.offer.card);
+    // Each video with its size (review W9 of iteration 1: the studio lists
+    // them so).
+    let videos: Vec<(RemotePath, Option<u64>)> = shown
+        .offer
+        .videos
+        .iter()
+        .map(|v| (v.path.clone(), v.size))
+        .collect();
     assert_eq!(
-        shown.offer.videos,
+        videos,
         [
-            remote("internal/video/intro.mp4"),
-            remote("sd/video/loop.mp4")
+            (remote("internal/video/intro.mp4"), Some(10)),
+            (remote("sd/video/loop.mp4"), Some(20))
         ]
     );
     assert_eq!(shown.options.map(|o| o.choice), Choice::ALL);

@@ -19,7 +19,7 @@ use super::framing::{ResolvedFraming, VideoFit, frame_picture};
 use super::geometry::Orientation;
 use super::media::MediaKind;
 use super::screen::Brightness;
-use super::storage::{BootMedia, RemotePath, StartMode};
+use super::storage::{BootMedia, FileEntry, RemotePath, StartMode};
 use crate::{BezelError, Result};
 
 /// The minutes of the screen's sleep timer that `off` writes: 1 to 10 (the
@@ -358,9 +358,9 @@ pub fn unavailable(reason: Unavailable) -> [StandbyOption; 4] {
 pub struct Offer {
     /// Whether a memory card is inserted.
     pub card: bool,
-    /// The videos stored on the screen, internal first: what `video` can
-    /// play.
-    pub videos: Vec<RemotePath>,
+    /// The videos stored on the screen with their sizes, internal first:
+    /// what `video` can play.
+    pub videos: Vec<FileEntry>,
 }
 
 impl Offer {
@@ -673,7 +673,10 @@ mod tests {
         );
         let full = Offer {
             card: true,
-            videos: vec![RemotePath::parse("sd/video/a.mp4").unwrap()],
+            videos: vec![FileEntry {
+                path: RemotePath::parse("sd/video/a.mp4").unwrap(),
+                size: Some(1),
+            }],
         };
         assert_eq!(reasons(full.options()), [None; 4]);
         assert_eq!(full.options().map(|o| o.choice), Choice::ALL);
