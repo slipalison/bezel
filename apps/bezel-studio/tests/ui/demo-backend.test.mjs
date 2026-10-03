@@ -300,6 +300,9 @@ test('the vendor card scenario is the user\'s real card beside an internal memor
   assert.deepEqual(o.cache, { copies: 6, bytes: 19_386_367, deletedCopies: 0, deletedBytes: 0, limit: 2 * 2 ** 30 });
   assert.match(await demo.managerThumbnail(KEY, 'internal/video/earth.mp4'), /^data:image\/svg\+xml,/);
   assert.equal(await demo.managerThumbnail(KEY, 'sd/video/AMD.mp4'), null);
+  // A refused overview answers before it lists anything: the thumbnails still follow the last listing.
+  await assert.rejects(demo.managerOverview('COM9'), (e) => e.code === 'unsupported');
+  assert.match(await demo.managerThumbnail(KEY, 'internal/video/earth.mp4'), /^data:/, 'the refusal did not replace the listing');
 });
 
 test('a move sends the copy, checks it, and only then deletes the source', async () => {

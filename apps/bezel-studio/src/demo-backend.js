@@ -445,7 +445,8 @@ function createDemoStorage(chosen, { delay, now, live, isLive, theme, themes, sc
   };
 
   // Errors like the app's: a code, its arguments and the English text.
-  const refuse = (code, message, args = {}) => Promise.reject(Object.assign(new Error(message), { code, args }));
+  const errorOf = (code, message, args = {}) => Object.assign(new Error(message), { code, args });
+  const refuse = (code, message, args = {}) => Promise.reject(errorOf(code, message, args));
   // A refusal like the preflight's (and like an upload whose conversion is still too large).
   const refused = (code, extra = {}) => ({ status: 'refused', code, message: code, mismatches: [], candidates: [], accepted: [], ...extra });
   const screenOf = (key) => screens().find((s) => s.key === key);
@@ -576,13 +577,21 @@ function createDemoStorage(chosen, { delay, now, live, isLive, theme, themes, sc
     const steps = plan.steps.map(({ content, ...step }) => step);
     return { ...plan, ticket, steps, bytes: steps.reduce((sum, s) => sum + s.size, 0), free: capacity(plan.to).free };
   }
-  /** Why the manager cannot read or plan now (like the overview's refusals). */
-  function blocked(key, to = 'internal') {
-    if (chosen.denied) return Promise.reject(demoDenied(key));
-    if (!screenOf(key)?.models.every((m) => m.capabilities.storage)) return refuse('unsupported', 'not supported: no storage', { detail: 'no storage' });
-    if (job) return refuse('busy', 'a storage operation is using the screen');
-    if (!['internal', 'sd'].includes(to)) return refuse('unknownMedium', `unknown medium "${to}" (internal or sd)`, { medium: String(to) });
+  /**
+   * Why the manager cannot read or plan now (like the overview's refusals):
+   * the error it answers with, or `null` when it can.
+   */
+  function whyBlocked(key, to = 'internal') {
+    if (chosen.denied) return demoDenied(key);
+    if (!screenOf(key)?.models.every((m) => m.capabilities.storage)) return errorOf('unsupported', 'not supported: no storage', { detail: 'no storage' });
+    if (job) return errorOf('busy', 'a storage operation is using the screen');
+    if (!['internal', 'sd'].includes(to)) return errorOf('unknownMedium', `unknown medium "${to}" (internal or sd)`, { medium: String(to) });
     return null;
+  }
+  /** `whyBlocked` as an answer: its rejection, or `null` when the manager can go on (`blocked(key) ?? answer`). */
+  function blocked(key, to = 'internal') {
+    const why = whyBlocked(key, to);
+    return why ? Promise.reject(why) : null;
   }
 
   /**
@@ -836,8 +845,8 @@ function createDemoStorage(chosen, { delay, now, live, isLive, theme, themes, sc
     },
     /** Both media with the catalog beside them (the storage manager's view). */
     managerOverview: (key) => {
-      const refusal = blocked(key);
-      if (refusal) return refusal;
+      const why = whyBlocked(key);
+      if (why) return Promise.reject(why);
       const listed = managedFiles(key);
       listedBy = { key, paths: new Set(listed.map((f) => f.path)) };
       return Promise.resolve({
@@ -863,8 +872,8 @@ function createDemoStorage(chosen, { delay, now, live, isLive, theme, themes, sc
     planCopy: (key, paths, to, overwrite = []) => blocked(key, to) ?? Promise.resolve(keepPlan(key, demoPlanAcross(planView(key), 'copy', paths, to, overwrite))),
     planRename: (key, path, newName, overwrite = []) => blocked(key) ?? Promise.resolve(keepPlan(key, demoPlanRename(planView(key), path, newName, overwrite))),
     planRestore: (key, ids, to, overwrite = []) => {
-      const refusal = blocked(key, to);
-      if (refusal) return refusal;
+      const why = whyBlocked(key, to);
+      if (why) return Promise.reject(why);
       const chosenEntries = restorable().filter((r) => ids.includes(r.id));
       const room = { free: capacity(to).free, cap: capOf(key) };
       return Promise.resolve(keepPlan(key, demoPlanRestore(planView(key), chosenEntries, to, room, overwrite)));
@@ -899,8 +908,8 @@ function createDemoStorage(chosen, { delay, now, live, isLive, theme, themes, sc
     /** The originals the demo's picker returns: files, or their folder. */
     pickOriginals: (folder) => Promise.resolve(folder ? [DEMO_ORIGINALS_FOLDER] : Object.keys(DEMO_ORIGINALS)),
     associateCandidates: (key, path, sources) => {
-      const refusal = blocked(key);
-      if (refusal) return refusal;
+      const why = whyBlocked(key);
+      if (why) return Promise.reject(why);
       const size = listedSize(key, path);
       if (!files.has(path) || size === null) return refuse('invalidInput', `invalid input: ${path} is not stored on the screen`, { detail: `${path} is not stored on the screen` });
       const known = (source) => (DEMO_ORIGINALS[source] ? [source] : Object.keys(DEMO_ORIGINALS).filter((p) => p.startsWith(`${source}/`)));
@@ -912,8 +921,8 @@ function createDemoStorage(chosen, { delay, now, live, isLive, theme, themes, sc
     /** Copies a confirmed original into the store: the file gets a thumbnail and becomes movable. */
     associateOriginal: (key, path, source, confirmed) => {
       if (!confirmed) return refuse('notConfirmed', `associating ${path} needs confirmation`, { detail: `associating ${path}` });
-      const refusal = blocked(key);
-      if (refusal) return refusal;
+      const why = whyBlocked(key);
+      if (why) return Promise.reject(why);
       const original = DEMO_ORIGINALS[source];
       const size = listedSize(key, path);
       if (!original || original.size !== size || original.kind !== path.split('/')[1]) {
