@@ -172,8 +172,9 @@ fn watch(backend: &Shared, address: &BusAddress) -> Option<DiagCode> {
             // A second announcement of the same shutdown: already applied.
             Ok(Some(Shutdown::Starting)) if ending => {}
             Ok(Some(Shutdown::Starting)) => {
+                let arrived = Instant::now();
                 ending = true;
-                shut_down(backend, deadline_after(&logind));
+                shut_down(backend, deadline_after(arrived, &logind));
                 // Closing the descriptor lets the shutdown go on. Released,
                 // not dropped: off Linux an `Inhibitor` has nothing to close
                 // (and `drop` of it is `clippy::drop_non_drop` there).
@@ -201,15 +202,16 @@ fn watch(backend: &Shared, address: &BusAddress) -> Option<DiagCode> {
     }
 }
 
-/// The deadline of the actions, from now: logind's delay
-/// (`InhibitDelayMaxUSec`, [`DEFAULT_DELAY`] when it cannot be read) less
-/// [`MARGIN`].
-fn deadline_after(logind: &Logind) -> Instant {
+/// The deadline of the actions of a shutdown announced at `arrived`:
+/// logind's delay (`InhibitDelayMaxUSec`, [`DEFAULT_DELAY`] when it cannot
+/// be read) less [`MARGIN`], counted from the announcement, as logind
+/// counts it, not from the answer to reading the delay.
+fn deadline_after(arrived: Instant, logind: &Logind) -> Instant {
     let delay = logind.delay_max().unwrap_or_else(|_| {
         diag::report(DiagCode::ShutdownDelayNotRead);
         DEFAULT_DELAY
     });
-    Instant::now() + delay.saturating_sub(MARGIN)
+    arrived + delay.saturating_sub(MARGIN)
 }
 
 /// The connection to logind at `address` and its delay lock, taken; what

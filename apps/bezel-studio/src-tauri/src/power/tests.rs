@@ -689,9 +689,16 @@ impl LogindBus {
     /// The bus, with a fake logind whose delay is `delay` (`None`: no
     /// logind on it).
     pub(crate) fn start(delay: Option<Duration>) -> Self {
+        Self::start_slow(delay, Duration::ZERO)
+    }
+
+    /// [`LogindBus::start`], the fake logind answering the read of its
+    /// delay `slowness` after it is asked.
+    fn start_slow(delay: Option<Duration>, slowness: Duration) -> Self {
         let bus = PrivateBus::start()
             .expect("dbus-daemon (package `dbus`) runs these tests; they fail without it");
-        let fake = delay.map(|delay| FakeLogind::start(&bus.address(), delay).unwrap());
+        let fake =
+            delay.map(|delay| FakeLogind::start_slow(&bus.address(), delay, slowness).unwrap());
         let monitor = BusMonitor::start(&bus.address()).unwrap();
         Self { monitor, fake, bus }
     }
@@ -1050,6 +1057,39 @@ fn linux_a_hung_screen_releases_the_lock_at_the_deadline() {
             "{took:?}"
         );
         assert!(backend.studio().shutting_down());
+        drop(go);
+    });
+}
+
+/// Review W9 of iteration 1: the deadline is counted from logind's
+/// announcement, as logind counts its delay, not from the answer to reading
+/// the delay. With a logind that takes 1 s to say its 3 s delay, a screen
+/// that hangs still releases the lock 2.5 s after `PrepareForShutdown`.
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_the_deadline_counts_from_the_announcement() {
+    let delay = Duration::from_secs(3);
+    let deadline = delay - MARGIN;
+    let logind = Arc::new(LogindBus::start_slow(Some(delay), Duration::from_secs(1)));
+    let (_root, folders) = folders_for("power-slow", off());
+    let heard = Heard::default();
+    let (go, hold) = Hold::until();
+    let fake = FakeConnector::with_storage(FakeStorage::default());
+    let connector = Recording::over(fake, &heard, hold);
+    let (bus, seen) = (Arc::clone(&logind), heard.clone());
+    run_app(folders, connector, logind.address(), move |backend| {
+        wait_live(backend, &seen);
+        assert!(bus.logind().wait_for_inhibitors(1, PATIENCE));
+        let asked = Instant::now();
+        bus.logind().prepare_for_shutdown(true).unwrap();
+        assert!(bus.logind().wait_for_release(0, PATIENCE));
+        let took = asked.elapsed();
+        assert!(
+            took >= deadline - Duration::from_millis(100)
+                && took < deadline + Duration::from_millis(400),
+            "{took:?}"
+        );
+        assert_eq!(seen.count("turn_off_now"), 1);
         drop(go);
     });
 }

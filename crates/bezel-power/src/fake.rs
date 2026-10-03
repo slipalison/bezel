@@ -261,6 +261,16 @@ impl FakeLogind {
     /// Takes logind's name on the bus at `address`; `delay_max` is its
     /// `InhibitDelayMaxUSec`.
     pub fn start(address: &BusAddress, delay_max: Duration) -> Result<Self, PowerError> {
+        Self::start_slow(address, delay_max, Duration::ZERO)
+    }
+
+    /// [`FakeLogind::start`], answering the read of `InhibitDelayMaxUSec`
+    /// only `slowness` after it is asked: a logind busy at shutdown.
+    pub fn start_slow(
+        address: &BusAddress,
+        delay_max: Duration,
+        slowness: Duration,
+    ) -> Result<Self, PowerError> {
         let channel = open(address)?;
         let name = channel.unique_name().unwrap_or_default().to_owned();
         let reply = call(&channel, BUS, BUS_PATH, BUS, "RequestName", |m| {
@@ -278,6 +288,7 @@ impl FakeLogind {
             channel,
             record: Arc::clone(&record),
             delay_max,
+            slowness,
         };
         let server = thread::Builder::new()
             .name("fake-logind".into())
@@ -357,6 +368,8 @@ struct Server {
     channel: Channel,
     record: Arc<Watched<Record>>,
     delay_max: Duration,
+    /// How long the read of the delay waits before it is answered.
+    slowness: Duration,
 }
 
 /// A D-Bus error to answer with.
@@ -482,6 +495,7 @@ impl Server {
         if !asked_delay {
             return Err(UNKNOWN_PROPERTY);
         }
+        thread::sleep(self.slowness);
         let micros = u64::try_from(self.delay_max.as_micros()).unwrap_or(u64::MAX);
         Ok(message.method_return().append1(Variant(micros)))
     }
