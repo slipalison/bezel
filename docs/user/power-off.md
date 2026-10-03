@@ -66,8 +66,10 @@ screen off** also acts while the screen stays powered.
   timer is off.
 
 **Show at start…** and this choice change the same start setting: the last one
-you made wins, and setting the start file keeps the sleep timer. See
-[Screen storage and video](storage-and-video.md).
+you made wins, and setting the start file keeps the sleep timer. With
+**Photo album from the card**, Bezel Studio stores the album's start setting
+again at each shutdown, since that is how the screen restarts into the album.
+See [Screen storage and video](storage-and-video.md).
 
 Two screens of the same model share one choice, as they share Bezel's catalog.
 
@@ -103,8 +105,10 @@ the album at shutdown, the album starts at it. A video played at shutdown keeps
 the level the screen has at that moment; the stored level applies when the
 screen starts with a video on its own. `bezel standby show` says the plan B
 last stored on the screen, by this choice or by `bezel storage boot`, whichever
-came last. The choice lives in Bezel's catalog (`<data>/bezel/storage`), which
-the app reads at shutdown, so a choice made here while the app is open counts.
+came last, or by Bezel Studio restarting the screen into the album at shutdown
+(which stores the album's start setting again, even after `bezel storage boot`).
+The choice lives in Bezel's catalog (`<data>/bezel/storage`), which the app
+reads at shutdown, so a choice made here while the app is open counts.
 
 ## The photo album
 

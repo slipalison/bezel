@@ -451,6 +451,60 @@ fn the_plan_b_stored_last_shows_and_its_level_holds_at_shutdown() {
     assert_eq!(restart(&mut store), [Kept::Options(album, None)]);
 }
 
+/// Review W5 of iteration 2: the album's restart at shutdown stores start
+/// mode 1 on the screen even when a boot media set after the choice stored
+/// another plan B; the record then says the album's, so that `show` (the
+/// CLI's, the catalog's readers) says what the screen does from then on.
+/// When the record already says it, nothing is saved.
+#[test]
+fn the_album_at_shutdown_records_the_plan_b_it_stores() {
+    let album = PlanB::new(StartMode::Image, 0);
+    let connector = FakeConnector::with_storage(stocked());
+    let mut link = open(&connector);
+    let mut store = Counted::default();
+    choose(link.as_mut(), &mut store, Standby::Album, Confirm::Yes).expect("album");
+    Manager::new(link.as_mut(), &mut store)
+        .named("desk")
+        .set_boot_media(
+            &BootMedia::File(remote("internal/video/intro.mp4")),
+            None,
+            Confirm::Yes,
+        )
+        .expect("boot media");
+    let shown = |store: &mut Counted| {
+        let opened = FakeConnector::with_storage(stocked());
+        standby::show(open(&opened).as_mut(), store, &key())
+            .expect("shows")
+            .plan_b
+    };
+    assert_eq!(shown(&mut store).plan, PlanB::new(StartMode::Video, 0));
+
+    let saves = store.saves;
+    let at_shutdown_on = |store: &mut Counted| {
+        let opened = FakeConnector::with_storage(stocked());
+        let applied = at_shutdown(open(&opened).as_mut(), store);
+        assert_eq!(applied, Ok(Applied::Album));
+        assert_eq!(opened.log().kept, [Kept::Options(album, None)]);
+    };
+    at_shutdown_on(&mut store);
+    assert_eq!(store.saves, saves + 1, "the album's plan B recorded");
+    assert_eq!(
+        shown(&mut store),
+        StoredPlanB {
+            plan: album,
+            brightness: None
+        }
+    );
+    let record = store.inner.saved().and_then(|c| c.screen(&key()).cloned());
+    let record = record.expect("record");
+    assert_eq!(record.standby, Standby::Album, "the choice stays");
+    assert_eq!(record.boot, Some(remote("internal/video/intro.mp4")));
+
+    // The record says it now: the next shutdown saves nothing.
+    at_shutdown_on(&mut store);
+    assert_eq!(store.saves, saves + 1);
+}
+
 #[test]
 fn the_shutdown_actions_follow_the_recorded_choice() {
     let connector = FakeConnector::with_storage(stocked());

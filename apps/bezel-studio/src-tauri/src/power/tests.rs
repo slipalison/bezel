@@ -22,7 +22,7 @@ use bezel_core::domain::frame::Frame;
 use bezel_core::domain::geometry::Orientation;
 use bezel_core::domain::job::Job;
 use bezel_core::domain::screen::{Brightness, ScreenIdentity};
-use bezel_core::domain::standby::{PlanB, SleepMinutes, Standby};
+use bezel_core::domain::standby::{PlanB, SleepMinutes, Standby, StoredPlanB};
 use bezel_core::domain::storage::{
     Confirmed, FileName, RemotePath, Repeat, StartMode, StorageInfo, StorageLocation,
 };
@@ -707,10 +707,29 @@ fn the_session_hands_its_live_link_to_the_shutdown_only() {
 /// opens each awake rev C screen whose choice is not `keep` and applies it
 /// (`album`: OPTIONS start mode 1 and RESTART, with a card); a screen
 /// asleep (only its MCU on the bus) is never woken, and nothing is sent
-/// to it.
+/// to it. The catalog on disk then says the album's plan B was stored
+/// last, where a boot media set after the choice had stored start mode 2
+/// (review W5 of iteration 2).
 #[test]
 fn a_shutdown_opens_the_awake_screens_and_wakes_none() {
     let (_root, folders) = folders_for("power-awake", Standby::Album);
+    let stored = |data: &Path| {
+        let mut archive = DiskArchive::open(storage_dir(data)).unwrap();
+        let catalog = archive.load().unwrap();
+        catalog
+            .screen(&ScreenKey::new(MODEL))
+            .and_then(|r| r.stored)
+    };
+    let video = StoredPlanB {
+        plan: PlanB::new(StartMode::Video, 0),
+        brightness: None,
+    };
+    {
+        let mut archive = DiskArchive::open(storage_dir(&folders.data)).unwrap();
+        let mut catalog = archive.load().unwrap();
+        catalog.screen_mut(&ScreenKey::new(MODEL)).stored = Some(video);
+        archive.save(&catalog).unwrap();
+    }
     let heard = Heard::default();
     let card = FakeStorage::default().with_card(1 << 30);
     let fake = FakeConnector::with_storage(card);
@@ -730,6 +749,11 @@ fn a_shutdown_opens_the_awake_screens_and_wakes_none() {
         fake.log().storage.options,
         Some(PlanB::new(StartMode::Image, 0))
     );
+    let album = StoredPlanB {
+        plan: PlanB::new(StartMode::Image, 0),
+        brightness: None,
+    };
+    assert_eq!(stored(&folders.data), Some(album));
 
     let (_root, folders) = folders_for("power-asleep", off());
     let heard = Heard::default();

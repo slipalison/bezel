@@ -67,7 +67,9 @@ repouso de **Apagar a tela** age também enquanto a tela continua energizada.
 
 O **Mostrar ao ligar…** e esta escolha mudam o mesmo ajuste de início: vale o
 último que você fez, e definir o arquivo de início mantém o temporizador de
-repouso. Veja [Armazenamento e vídeo](storage-and-video.md).
+repouso. Com **Álbum de fotos do cartão**, o Bezel Studio grava de novo o ajuste
+de início do álbum a cada desligamento, porque é assim que a tela reinicia no
+álbum. Veja [Armazenamento e vídeo](storage-and-video.md).
 
 Duas telas do mesmo modelo dividem uma escolha, como dividem o catálogo do
 Bezel.
@@ -103,9 +105,11 @@ quando o Bezel Studio reinicia a tela no álbum no desligamento, o álbum liga c
 ele. Um vídeo tocado no desligamento fica com o nível que a tela tem naquela
 hora; o nível gravado vale quando a tela liga sozinha com um vídeo. O
 `bezel standby show` diz o plano B gravado por último na tela, por esta escolha
-ou pelo `bezel storage boot`, o que veio depois. A escolha fica no catálogo do
-Bezel (`<data>/bezel/storage`), que o aplicativo lê no desligamento, então uma
-escolha feita aqui com o aplicativo aberto vale.
+ou pelo `bezel storage boot`, o que veio depois, ou pelo Bezel Studio ao
+reiniciar a tela no álbum no desligamento (que grava de novo o início do álbum,
+mesmo depois de um `bezel storage boot`). A escolha fica no catálogo do Bezel
+(`<data>/bezel/storage`), que o aplicativo lê no desligamento, então uma escolha
+feita aqui com o aplicativo aberto vale.
 
 A linha de comando e as mensagens dela ficam em inglês.
 

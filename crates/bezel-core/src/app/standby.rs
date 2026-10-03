@@ -55,7 +55,7 @@ pub enum Applied {
     Video(RemotePath),
     /// `album`: start mode 1 was written (with the level stored with the
     /// last plan B, when one was chosen) and the screen restarts into the
-    /// photos of its card.
+    /// photos of its card; the record says that plan B was stored last.
     Album,
     /// The choice could not be honoured (the video is gone, no card): the
     /// screen was turned off instead of staying frozen.
@@ -238,8 +238,11 @@ fn recorded_choice(store: &mut dyn ArchiveStore, key: &ScreenKey) -> Result<Reco
 /// use bezel_core::app::standby::recorded_choice;
 /// ```
 ///
-/// The store is only read. A family without the choice: `Unsupported`,
-/// nothing sent.
+/// The store is only read, but for `album` when the record says another
+/// plan B was stored last (a boot media set after the choice): the album's
+/// is recorded then, after the restart ([`ScreenRecord::stored`]), so a
+/// catalog that cannot be saved fails the call though the screen restarts.
+/// A family without the choice: `Unsupported`, nothing sent.
 pub fn at_shutdown(
     link: &mut dyn ScreenLink,
     store: &mut dyn ArchiveStore,
@@ -258,7 +261,7 @@ pub fn at_shutdown(
             Ok(Applied::TurnedOff)
         }
         Standby::Video(path) => loop_video(link, path),
-        Standby::Album => restart_into_album(link, &choice),
+        Standby::Album => restart_into_album(link, &choice, store, key),
     }
 }
 
@@ -276,8 +279,13 @@ fn loop_video(link: &mut dyn ScreenLink, path: &RemotePath) -> Result<Applied> {
 
 /// `album` at shutdown: start mode 1 at the level the user stored with the
 /// plan B (review W4: `--brightness` holds after the restart too), and a
-/// restart, with a card.
-fn restart_into_album(link: &mut dyn ScreenLink, choice: &RecordedChoice) -> Result<Applied> {
+/// restart, with a card; then the record says that plan B was stored last.
+fn restart_into_album(
+    link: &mut dyn ScreenLink,
+    choice: &RecordedChoice,
+    store: &mut dyn ArchiveStore,
+    key: &ScreenKey,
+) -> Result<Applied> {
     if storage_of(link)?.info()?.card.is_none() {
         return turned_off_instead(link, Unavailable::NoCard);
     }
@@ -288,7 +296,27 @@ fn restart_into_album(link: &mut dyn ScreenLink, choice: &RecordedChoice) -> Res
     let plan = choice.standby().plan_b(StartMode::Default);
     storage.set_options(plan, Confirmed::recorded(choice))?;
     storage.restart(Confirmed::recorded(choice))?;
+    let brightness = choice.brightness();
+    record_stored(store, key, StoredPlanB { plan, brightness })?;
     Ok(Applied::Album)
+}
+
+/// Records `stored` as the plan B last stored on the screen of `key`
+/// ([`ScreenRecord::stored`]) unless the record already says it (review
+/// W5: the album's restart rewrites a boot media's plan B set after the
+/// choice). The catalog is read again right before it is saved.
+fn record_stored(store: &mut dyn ArchiveStore, key: &ScreenKey, stored: StoredPlanB) -> Result<()> {
+    let mut catalog = store.load()?;
+    let record = catalog.screen_mut(key);
+    let said = StoredPlanB {
+        plan: record.plan_b(),
+        brightness: record.start_brightness(),
+    };
+    if said == stored {
+        return Ok(());
+    }
+    record.stored = Some(stored);
+    store.save(&catalog)
 }
 
 /// A choice that cannot be honoured: the screen is turned off instead.
