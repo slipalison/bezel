@@ -468,6 +468,7 @@ dependencies = [
  "bezel-devices",
  "bezel-klipy",
  "bezel-media",
+ "bezel-power",
  "bezel-render",
  "bezel-sensors",
  "bezel-themes",

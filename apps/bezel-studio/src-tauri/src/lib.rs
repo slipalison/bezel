@@ -20,6 +20,7 @@ pub mod library;
 pub mod manager;
 pub mod media;
 pub mod messages;
+pub mod power;
 pub mod settings;
 pub mod storage;
 pub mod studio;
@@ -45,10 +46,11 @@ use bezel_klipy::KlipyClient;
 use bezel_media::FfmpegTranscoder;
 use bezel_media::archive::{DiskArchive, MemoryArchive, storage_dir};
 use bezel_media::collection::{DiskCollection, collection_dir};
+use bezel_power::BusAddress;
 use bezel_render::{SkiaRenderer, SystemFonts, font_files};
 use bezel_sensors::{FakeSensors, SystemSensors};
 use bezel_themes::FsThemeStore;
-use tauri::{App, AppHandle, Emitter as _, Manager, Runtime, WindowEvent};
+use tauri::{App, AppHandle, Emitter as _, Manager, RunEvent, Runtime, WindowEvent};
 
 use crate::backend::{
     Backend, DEFAULT_MODEL, SensorFactory, Session, default_orientation, sleep_until,
@@ -136,7 +138,8 @@ const DMABUF_SWITCH: &str = "WEBKIT_DISABLE_DMABUF_RENDERER";
 /// a failure in the setup (the folders, the tray, the window and its web
 /// view) and a desktop without a graphical session panic in Tauri or tao
 /// (review W1 of round 2, iter 5), and the panic hook says
-/// [`DiagCode::Panicked`] with the place.
+/// [`DiagCode::Panicked`] with the place. `Builder::build` returns the same
+/// errors `Builder::run` did.
 pub fn start_failure(error: &tauri::Error) -> DiagCode {
     match error {
         tauri::Error::PluginInitialization(..) => DiagCode::PluginNotStarted,
@@ -166,7 +169,10 @@ fn restart_failure(error: &io::Error) -> DiagCode {
     }
 }
 
-/// Starts the app and blocks until it exits.
+/// Starts the app and blocks until it exits. The app is built, then run
+/// (`Builder::build` and `App::run`) so that the end of its event loop
+/// ([`on_run_event`]) applies each screen's choice when Windows ends the
+/// session (D-2026-10-03-power-off-standby-3 (2)).
 ///
 /// # Errors
 ///
@@ -176,14 +182,19 @@ pub fn run() -> Result<(), tauri::Error> {
     #[cfg(target_os = "linux")]
     restart_without_dmabuf_renderer();
 
+    let simulate = switch_on(std::env::var_os(SIMULATION_SWITCH).as_deref());
     let start: Start<tauri::Wry> = Start {
-        simulate: switch_on(std::env::var_os(SIMULATION_SWITCH).as_deref()),
+        simulate,
+        adapters: adapters(simulate),
         hidden: std::env::args().any(|a| a == HIDDEN_ARG),
         folders: Box::new(|app: &AppHandle| Folders::of(app)),
         gif_source: klipy_source(),
         tray: Box::new(add_tray),
+        // Where logind is (D-2026-10-03-power-off-standby-3): the studio's
+        // one D-Bus connection, to logind only (`bezel-power`).
+        logind: BusAddress::system(),
     };
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         // First plugin: a second launch shows this window and exits.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             show_main_window(app);
@@ -299,7 +310,23 @@ pub fn run() -> Result<(), tauri::Error> {
             commands::use_collected,
             commands::open_link,
         ])
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())?;
+    app.run(on_run_event);
+    Ok(())
+}
+
+/// What the app does when its event loop ends (`RunEvent::Exit`): while
+/// Windows ends the session (shutting down, restarting, signing out), each
+/// screen gets its choice, waited for ([`power::at_exit`]); quitting the
+/// app (the tray, the window) applies nothing. Off Windows the session is
+/// never said to be ending here: logind tells Linux's shutdowns
+/// ([`power::watch_shutdowns`]).
+fn on_run_event<R: Runtime>(app: &AppHandle<R>, event: RunEvent) {
+    if let RunEvent::Exit = event {
+        let backend = app.try_state::<Shared>();
+        let exit = power::Exit::of(bezel_power::session_ending());
+        let _ = power::at_exit(backend.as_deref(), exit);
+    }
 }
 
 /// Keeps the tray's live item in step with whether a screen is live.
@@ -312,18 +339,25 @@ type FindFolders<R> = Box<dyn FnOnce(&AppHandle<R>) -> tauri::Result<Folders> + 
 /// the labels; answers what keeps its live item in step.
 type AddTray<R> = Box<dyn FnOnce(&AppHandle<R>, bool, &Texts) -> tauri::Result<LiveSync> + Send>;
 
-/// What [`setup`] gets from [`run`]: the start's switches, where the files
-/// are, the GIF provider and the tray. A test of the setup gives temporary
-/// folders, a fake GIF source and no tray icon.
+/// What [`setup`] gets from [`run`]: the start's switches, the machine's
+/// adapters, where the files are, the GIF provider, the tray and where
+/// logind is. A test of the setup gives fake screens, temporary folders, a
+/// fake GIF source, no tray icon and a private bus.
 struct Start<R: Runtime> {
-    /// Simulated screen and sensors ([`SIMULATION_SWITCH`]).
+    /// Simulated screen and sensors ([`SIMULATION_SWITCH`]): the local
+    /// copies are kept in memory.
     simulate: bool,
+    /// The screens and sensors: [`adapters`] of `simulate`, or a test's.
+    adapters: Adapters,
     /// Started at login ([`HIDDEN_ARG`]): the window stays hidden.
     hidden: bool,
     folders: FindFolders<R>,
     /// Makes the GIF source for a saved key: KLIPY's client.
     gif_source: SourceFactory,
     tray: AddTray<R>,
+    /// The bus where logind is ([`power::watch_shutdowns`]): the system bus,
+    /// a test's private one.
+    logind: BusAddress,
 }
 
 /// The app's start, once the runtime is up (Tauri's `setup`): the backend
@@ -356,11 +390,17 @@ struct Start<R: Runtime> {
 /// made here, and the system opener but in the helper the `open_link` and
 /// `open_guide` commands call. Code written to get past it otherwise is left
 /// to code review.
+///
+/// It also starts watching logind on the bus [`Start`] names
+/// ([`power::watch_shutdowns`], D-2026-10-03-power-off-standby-3): the
+/// studio's one D-Bus connection, which takes logind's shutdown delay lock
+/// and says nothing else (`tests::the_app_setup_sends_nothing_at_start`
+/// watches that bus).
 fn setup<R: Runtime>(app: &App<R>, start: Start<R>) -> Result<(), Box<dyn std::error::Error>> {
     // Each part that fails says so, before the app says it did not start.
     let folders =
         (start.folders)(app.handle()).inspect_err(|_| diag::report(DiagCode::FoldersNotFound))?;
-    let backend: Shared = Arc::new(compose(&folders, start.simulate));
+    let backend: Shared = Arc::new(compose(&folders, start.adapters, start.simulate));
     // Before the window asks for it: the last theme, or a blank one for the
     // connected screen.
     backend.restore_theme();
@@ -372,6 +412,7 @@ fn setup<R: Runtime>(app: &App<R>, start: Start<R>) -> Result<(), Box<dyn std::e
     let live = backend.studio().live_key().is_some();
     let live_item = (start.tray)(app.handle(), live, &backend.texts())
         .inspect_err(|_| diag::report(DiagCode::TrayNotAdded))?;
+    power::watch_shutdowns(Arc::clone(&backend), start.logind);
     start_refresh_loop(backend, live_item);
     if !start.hidden {
         show_main_window(app.handle());
@@ -494,13 +535,15 @@ fn bundled_theme_dirs(folders: &Folders) -> Vec<PathBuf> {
     .collect()
 }
 
-fn compose(folders: &Folders, simulate: bool) -> Backend {
+/// The backend over `adapters`, keeping its files in `folders` (the local
+/// copies in memory for the simulated machine, `simulate`).
+fn compose(folders: &Folders, adapters: Adapters, simulate: bool) -> Backend {
     let Adapters {
         bus,
         connector,
         hid,
         sensors,
-    } = adapters(simulate);
+    } = adapters;
     // The bundled themes' fonts first, so previews match every machine.
     let bundled_dirs = bundled_theme_dirs(folders);
     let bundled_fonts = bundled_dirs
@@ -704,8 +747,6 @@ mod tests {
     #[cfg(not(windows))]
     use serde_json::{Value, json};
     #[cfg(not(windows))]
-    use tauri::RunEvent;
-    #[cfg(not(windows))]
     use tauri::ipc::{CallbackFn, InvokeBody};
     #[cfg(not(windows))]
     use tauri::test::{
@@ -742,7 +783,7 @@ mod tests {
     const IDLE: Duration = Duration::from_millis(1500);
 
     /// An empty temporary folder for the test `name`.
-    fn temp_root(name: &str) -> PathBuf {
+    pub(crate) fn temp_root(name: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!("bezel-app-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         root
@@ -750,7 +791,7 @@ mod tests {
 
     impl Folders {
         /// The app's folders, all inside `root`.
-        fn under(root: &Path) -> Self {
+        pub(crate) fn under(root: &Path) -> Self {
             Self {
                 config: root.join("config"),
                 data: root.join("data"),
@@ -778,8 +819,15 @@ mod tests {
     /// asks nothing of KLIPY. The GIF source is never made, so never asked,
     /// while the app idles: its refresh loop goes round once, then a while
     /// more. Only the folders (temporary), the GIF source (counted), the
-    /// screen (simulated) and the tray (none: it needs the desktop's) are
-    /// the test's.
+    /// screen (simulated), the tray (none: it needs the desktop's) and the
+    /// bus logind is on are the test's.
+    ///
+    /// D-2026-10-03-power-off-standby-3 and -6: the setup's one D-Bus
+    /// connection goes to the bus [`Start`] names (on Linux, a private
+    /// `dbus-daemon` with a fake logind; never the machine's system bus),
+    /// and a monitor of that whole bus sees it say exactly `Hello` and the
+    /// `AddMatch` of `PrepareForShutdown` to the bus, and `Inhibit` of a
+    /// shutdown delay to logind: nothing else, to anyone else.
     ///
     /// Not built on Windows (D-2026-10-01-gif-sticker-search-8): the mock
     /// runtime's `test` feature makes the Windows test binary fail to load
@@ -797,8 +845,15 @@ mod tests {
         let source = FakeGifSource::new();
         let (made, made_rx) = mpsc::channel();
         let (round, rounds) = mpsc::channel();
+        #[cfg(target_os = "linux")]
+        let logind = crate::power::tests::LogindBus::start(Some(Duration::from_secs(5)));
+        #[cfg(target_os = "linux")]
+        let bus = logind.address();
+        #[cfg(not(target_os = "linux"))]
+        let bus = no_bus();
         let start = Start {
             simulate: true,
+            adapters: adapters(true),
             hidden: false,
             folders: Box::new(move |_: &AppHandle<MockRuntime>| Ok(folders)),
             gif_source: counting(&source, made),
@@ -809,6 +864,7 @@ mod tests {
                 });
                 Ok(synced)
             }),
+            logind: bus,
         };
         let app = mock_builder()
             .setup(move |app| setup(app, start))
@@ -843,12 +899,22 @@ mod tests {
         assert!(went_round, "the setup started the refresh loop");
         assert!(!asked, "a GIF source was made at start");
         assert!(source.calls().is_empty(), "KLIPY was asked at start");
+        #[cfg(target_os = "linux")]
+        logind.saw_the_studio_take_the_lock_and_say_nothing_else();
+    }
+
+    /// A bus address where nothing listens: the start of a test that does
+    /// not watch logind says so and goes on, never reaching the machine's
+    /// system bus.
+    #[cfg(not(windows))]
+    pub(crate) fn no_bus() -> BusAddress {
+        BusAddress::new("unix:path=/nonexistent/bezel-studio-test/bus")
     }
 
     /// A mock context with the window as `tauri.conf.json` has it, made
     /// before the setup.
     #[cfg(not(windows))]
-    fn context_with_the_window() -> tauri::Context<MockRuntime> {
+    pub(crate) fn context_with_the_window() -> tauri::Context<MockRuntime> {
         let mut context = mock_context(noop_assets());
         context.config_mut().app.windows.push(WindowConfig {
             label: MAIN_WINDOW.into(),
@@ -918,6 +984,7 @@ mod tests {
         let (made, made_rx) = mpsc::channel();
         let start = Start {
             simulate: true,
+            adapters: adapters(true),
             hidden: true,
             folders: Box::new(move |_: &AppHandle<MockRuntime>| Ok(folders)),
             gif_source: counting(&source, made),
@@ -925,6 +992,7 @@ mod tests {
                 let synced: LiveSync = Box::new(|_| {});
                 Ok(synced)
             }),
+            logind: no_bus(),
         };
         let app = mock_builder()
             .setup(move |app| setup(app, start))
@@ -998,6 +1066,7 @@ mod tests {
         let (made, made_rx) = mpsc::channel();
         let start = Start {
             simulate: true,
+            adapters: adapters(true),
             hidden: true,
             folders: Box::new(move |_: &AppHandle<MockRuntime>| Ok(folders)),
             gif_source: counting(&FakeGifSource::new(), made),
@@ -1005,6 +1074,7 @@ mod tests {
                 let synced: LiveSync = Box::new(|_| {});
                 Ok(synced)
             }),
+            logind: no_bus(),
         };
         let app = mock_builder()
             .setup(move |app| setup(app, start))
