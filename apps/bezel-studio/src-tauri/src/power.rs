@@ -174,8 +174,12 @@ fn watch(backend: &Shared, address: &BusAddress) -> Option<DiagCode> {
             Ok(Some(Shutdown::Starting)) => {
                 ending = true;
                 shut_down(backend, deadline_after(&logind));
-                // Closing the descriptor lets the shutdown go on.
-                drop(lock.take());
+                // Closing the descriptor lets the shutdown go on. Released,
+                // not dropped: off Linux an `Inhibitor` has nothing to close
+                // (and `drop` of it is `clippy::drop_non_drop` there).
+                if let Some(held) = lock.take() {
+                    held.release();
+                }
             }
             Ok(Some(Shutdown::Cancelled)) => {
                 let resume = std::mem::take(&mut ending);
