@@ -46,13 +46,18 @@
   W1–W7/W9: plano B gravado por último com o brilho (`stored`/`planB` no catálogo), `RecordedChoice`, prazo contado
   do sinal, diálogo do álbum preso durante o envio, guias verdadeiros sobre o plano B sem o studio. 1036 testes.
 
+- Iteração 3 (fix_blockers, `1cdc8dd..0e588e9`, 7 commits): linha 2 do crítico provada por
+  `linux_keep_opens_no_awake_screen_that_is_not_live` (falha sem `!= Keep`) e o simétrico; estado final no anúncio do
+  logind; `at_shutdown(link, store, key)` lê a escolha no core; o `album` registra o plano B que grava; 0x7B do álbum
+  (D-9); `createAnswers` na UI; o `set` mostra o brilho. 1041 testes, 94,90 % de linhas.
+
 ## Deviations
 - D-7 (orquestrador, antes do loop): contagens mínimas no DoD e Windows provado por teste + clippy msvc local.
 - `bezel-power` devolve `Result` em `inhibit`/`delay_max`/`wait` (o PLAN dizia valor puro): exigido pelo próprio
   critério "sem logind = erro tipado".
 - T-2: o limite de um STOP_MEDIA vale para todo play (o driver não sabe se é desligamento); o 8.8" responde na 1ª.
 - Contratos mudados na iteração 2: `album_add` + `replace`, `choose(..., brightness, ...)`, `at_shutdown(link,
-  &RecordedChoice)`, `Offer.videos: Vec<FileEntry>`.
+  store, key)` (iteração 3; `RecordedChoice` privado), `Offer.videos: Vec<FileEntry>`.
 - T-6 ajustou `tests/ui/storage.test.mjs`; T-5 ganhou `StorageState::scratch()`; T-7 tornou `pub(crate)` 4 helpers de
   `storage.rs` da CLI (fora de `files_modified`, mínimos).
 
