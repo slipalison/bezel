@@ -19,7 +19,7 @@ import { errorText } from '../messages.js';
 import { formatBytes, planRefusalText } from '../storage-manager.js';
 import {
   CHOICES, PHOTO_FITS, activation, albumClash, albumName, albumPath, albumPhotos, complete, confirmationOf, createAnswers, currentDetail,
-  dialogDefaults, minutesText, offered, optionOf, requestOf, screenShape, sleepChoices, suggestPhotoName, translate, videoGroups,
+  dialogDefaults, inTurn, minutesText, offered, optionOf, requestOf, screenShape, sleepChoices, suggestPhotoName, translate, videoGroups,
 } from '../standby.js';
 
 /** The icon of each choice. */
@@ -246,7 +246,8 @@ export function createStandbyPanel({ root, t, locale, bridge, notify, context, s
    */
   function modal(title, { wide = false } = {}) {
     const opener = document.activeElement;
-    const id = `standby-dialog-${(dialogs += 1)}`;
+    dialogs += 1;
+    const id = `standby-dialog-${dialogs}`;
     const body = el('div', { id: `${id}-body`, class: 'dialog-body' });
     const actions = el('div', { class: 'dialog-actions' });
     const close = el('button', { type: 'button', class: 'icon-button dialog-close', title: t('dialog.close'), 'aria-label': t('dialog.close') }, [icon(ICONS.close, 16)]);
@@ -423,13 +424,18 @@ export function createStandbyPanel({ root, t, locale, bridge, notify, context, s
     m.button('cancel', choosing ? t('dialog.cancel') : t('dialog.close'));
     if (choosing) use = m.button('ok', t('standby.album.use'), 'primary');
 
-    async function thumbnails() {
-      for (const img of [...list.querySelectorAll('img[data-path]')]) {
-        const url = await Promise.resolve(bridge.managerThumbnail(key, img.dataset.path)).catch(() => null);
-        if (!url || !img.isConnected) continue;
-        img.src = url;
-        img.closest('.album-thumb')?.classList.add('has-picture');
-      }
+    // One thumbnail at a time, on purpose, like the storage manager's queue:
+    // the studio draws them behind one lock, so asking for every photo at
+    // once would only park a blocking thread per photo on it.
+    function thumbnails() {
+      return inTurn(list.querySelectorAll('img[data-path]'), thumbnailOf);
+    }
+
+    async function thumbnailOf(img) {
+      const url = await Promise.resolve(bridge.managerThumbnail(key, img.dataset.path)).catch(() => null);
+      if (!url || !img.isConnected) return;
+      img.src = url;
+      img.closest('.album-thumb')?.classList.add('has-picture');
     }
 
     function photoItem(photo) {

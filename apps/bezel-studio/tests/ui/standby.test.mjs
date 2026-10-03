@@ -14,8 +14,8 @@ import { DEMO_PICKED_PHOTO } from '../../src/demo-data.js';
 import { DEMO_START_MODES, demoAlbumPicture, demoBootStartMode, demoPhotoBox, demoPlanB } from '../../src/demo-standby.js';
 import {
   ALBUM, CHOICES, PHOTO_FITS, REASONS, SLEEP, activation, albumClash, albumName, albumPath, albumPhotos, complete, confirmationOf, createAnswers,
-  currentDetail, dialogDefaults, minutesText, offered, optionOf, requestOf, screenShape, sleepChoices, sleepMinutesOf, suggestPhotoName, translate,
-  videoGroups,
+  currentDetail, dialogDefaults, inTurn, minutesText, offered, optionOf, requestOf, screenShape, sleepChoices, sleepMinutesOf, suggestPhotoName,
+  translate, videoGroups,
 } from '../../src/standby.js';
 
 const pt = translator('pt-BR');
@@ -247,6 +247,72 @@ test('a photo gets a name the card takes, as a PNG; a typed name is checked like
   assert.deepEqual(albumName('férias.png').problem, { code: 'invalidName', args: { char: 'é' } });
   assert.deepEqual(albumName('.png').problem, { code: 'invalidName', args: {} });
   assert.deepEqual(albumName('').problem, { code: 'invalidName', args: {} });
+});
+
+test('a suggested name keeps the runs of [a-z0-9-] joined by one `_`, none at its ends, and the card takes it', () => {
+  // The rule, written another way (the suggestion trimmed with `/^_+|_+$/g`
+  // before Sonar S8786): the stem in lower case, every run of anything but
+  // `[a-z0-9-]` (`_` included) one `_`, none leading or trailing.
+  const rule = (source) => {
+    const file = source.split('/').pop();
+    const dot = file.lastIndexOf('.');
+    const stem = (dot > 0 ? file.slice(0, dot) : file).replace(/[A-Z]+/g, (c) => c.toLowerCase());
+    return `${stem.split(/[^a-z0-9-]+/).filter(Boolean).join('_') || 'photo'}.png`;
+  };
+  assert.equal(suggestPhotoName('/x/__Praia__.jpg'), 'praia.png');
+  assert.equal(suggestPhotoName('/x/_ (Praia) _.jpg'), 'praia.png');
+  assert.equal(suggestPhotoName('/x/a__ _b.jpg'), 'a_b.png');
+  assert.equal(suggestPhotoName('/x/-a-.jpg'), '-a-.png');
+  assert.equal(suggestPhotoName('/x/_.jpg'), 'photo.png');
+  assert.equal(suggestPhotoName('/x/___'), 'photo.png');
+  // Every name of up to 5 characters, kept, folded or replaced ones, with and without an extension.
+  const alphabet = ['a', 'Z', '0', '_', '-', '.', ' ', 'é', '\u{1F600}'];
+  let level = [''];
+  let names = level;
+  for (let length = 1; length <= 5; length += 1) {
+    level = level.flatMap((name) => alphabet.map((c) => name + c));
+    names = names.concat(level);
+  }
+  const differ = [];
+  const refused = [];
+  for (const source of names.flatMap((name) => [`/x/${name}`, `/x/${name}.jpg`])) {
+    const suggested = suggestPhotoName(source);
+    if (suggested !== rule(source)) differ.push(source);
+    if (albumName(suggested).problem !== null) refused.push(source);
+  }
+  assert.deepEqual(differ, [], 'the rule, for every one');
+  assert.deepEqual(refused, [], 'lower case, only [a-z0-9_.-], no leading dot, .png');
+});
+
+test('inTurn runs each step once the one before settled; a failure stops the rest', async () => {
+  const next = () => new Promise((resolve) => { setImmediate(resolve); });
+  const log = [];
+  const ends = [];
+  const step = (item) => new Promise((resolve) => {
+    log.push(`start ${item}`);
+    ends.push(() => {
+      log.push(`end ${item}`);
+      resolve();
+    });
+  });
+  const done = inTurn(new Set(['a', 'b', 'c']), step);
+  await next();
+  assert.deepEqual(log, ['start a'], 'b waits for a');
+  ends.shift()();
+  await next();
+  assert.deepEqual(log, ['start a', 'end a', 'start b']);
+  ends.shift()();
+  await next();
+  ends.shift()();
+  assert.equal(await done, undefined);
+  assert.deepEqual(log, ['start a', 'end a', 'start b', 'end b', 'start c', 'end c']);
+  const ran = [];
+  await assert.rejects(inTurn([1, 2, 3], async (n) => {
+    ran.push(n);
+    if (n === 2) throw new Error('no thumbnail');
+  }), /no thumbnail/);
+  assert.deepEqual(ran, [1, 2], 'nothing after the failure');
+  assert.equal(await inTurn([], step), undefined);
 });
 
 // ---------------------------------------------------------------- demo --

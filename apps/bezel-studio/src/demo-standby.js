@@ -22,6 +22,14 @@ const REV_C = 'turing-rev-c';
 /** An error like the app's: a code, its arguments and the English text. */
 const refusal = (code, message, args = {}) => Object.assign(new Error(message), { code, args });
 
+/** Reads a picked photo of the demo and the fit, or why not. */
+function photoOf(source, fit) {
+  const photo = DEMO_PHOTOS[source];
+  if (!photo) return { error: refusal('fileError', `${source}: no such file`, { file: source, reason: 'no such file' }) };
+  if (!PHOTO_FITS.includes(fit)) return { error: refusal('invalidInput', `invalid input: fit "${fit}"`, { detail: `fit "${fit}"` }) };
+  return { photo };
+}
+
 /** The start mode of the boot media at `boot` (`internal/image/logo.png`), or the default without one. */
 export function demoBootStartMode(boot) {
   if (!boot) return DEMO_START_MODES.default;
@@ -132,14 +140,6 @@ export function createDemoStandby({ chosen, screens, storage, orientationOf, den
     if (request.choice === 'video' && !videosOf(screen).some((v) => v.path === request.file)) return detail(`${request.file} is not stored on the screen`);
     if (request.choice === 'album' && !storage.card()) return refusal('unsupported', 'not supported: the album needs an SD card in the screen', { detail: 'the album needs an SD card in the screen' });
     return null;
-  }
-
-  /** Reads a picked photo and the fit, or why not. */
-  function photoOf(source, fit) {
-    const photo = DEMO_PHOTOS[source];
-    if (!photo) return { error: refusal('fileError', `${source}: no such file`, { file: source, reason: 'no such file' }) };
-    if (!PHOTO_FITS.includes(fit)) return { error: refusal('invalidInput', `invalid input: fit "${fit}"`, { detail: `fit "${fit}"` }) };
-    return { photo };
   }
 
   return {

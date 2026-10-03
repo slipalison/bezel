@@ -198,9 +198,12 @@ export function suggestPhotoName(source) {
   let out = '';
   for (const c of stem) {
     const kept = /[a-z0-9_-]/.test(c) ? c : '_';
-    if (!(kept === '_' && out.endsWith('_'))) out += kept;
+    // A run of `_` is one `_`, and none leads the name.
+    if (kept !== '_' || (out !== '' && !out.endsWith('_'))) out += kept;
   }
-  return `${out.replace(/^_+|_+$/g, '') || 'photo'}.${ALBUM_EXTENSION}`;
+  // Runs are single, so at most one `_` trails: drop it.
+  const name = out.endsWith('_') ? out.slice(0, -1) : out;
+  return `${name || 'photo'}.${ALBUM_EXTENSION}`;
 }
 
 /**
@@ -222,6 +225,15 @@ export function albumClash(photos, name) {
 export const albumPath = (name) => `${ALBUM.medium}/${ALBUM.kind}/${name}`;
 
 /**
+ * Runs `step` on each of `items` (any iterable) in turn: the next starts
+ * once the one before settled, and the promise settles after the last; a
+ * step that fails stops the rest.
+ */
+export function inTurn(items, step) {
+  return Array.from(items).reduce((before, item) => before.then(() => step(item)), Promise.resolve());
+}
+
+/**
  * Which answer about the screen shown is the newest, so that an older one is
  * never drawn over it: each reading of the screen shown takes a ticket, and
  * so does a write while its screen is the one shown (it outdates a reading
@@ -238,11 +250,16 @@ export const albumPath = (name) => `${ALBUM.medium}/${ALBUM.kind}/${name}`;
 export function createAnswers() {
   let latest = 0;
   const newest = (ticket) => ticket !== null && ticket === latest;
+  /** A new ticket, newer than every one before. */
+  const next = () => {
+    latest += 1;
+    return latest;
+  };
   return {
     /** A reading of the screen shown starts: its ticket. */
-    reading: () => (latest += 1),
+    reading: next,
     /** A write for `key` starts while `shown` is shown: its ticket, `null` for another screen. */
-    writing: (key, shown) => (key === shown ? (latest += 1) : null),
+    writing: (key, shown) => (key === shown ? next() : null),
     /** Whether the answer of `ticket` is still the newest. */
     newest,
     /**
