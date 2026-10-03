@@ -25,7 +25,7 @@ Specialist: `jdi-doer-bezel` (todas).
   - `at_shutdown`: `off` = `turn_off_now`; `video` = `play_video` loop; `album` = `set_options` (modo 1, 0) + `restart`; arquivo ausente ou sem cartão → `turn_off_now`; `keep` nada. A prova vem da escolha registrada.
   - `standby` no `DiskArchive` (campo opcional: catálogo antigo = `keep`). `FakeScreen` grava `Options`, `Restart`, `TurnOffNow` (mantém `FakeStorage::start_mode`).
 - **Test:** `tests/standby.rs`, ≥ 6 (No/Unsupported; off/album/video; keep desfaz; boot ↔ temporizador; ações; impossível→TURNOFF); `domain::standby::tests`: `album_frame` vertical e horizontal
-- **Status:** pending
+- **Status:** completed
 
 #### T-3: Adaptador `bezel-power`: logind e fim de sessão
 - **DoD:** 3, 7 · **Dependencies:** none
@@ -35,7 +35,7 @@ Specialist: `jdi-doer-bezel` (todas).
   - Conecta só ao endereço recebido; fala só com `org.freedesktop.login1` (fora `Hello`/`AddMatch` do barramento); `Inhibit("shutdown", "Bezel", reason, "delay")`; `delay_max` = `InhibitDelayMaxUSec`; sem barramento ou logind = erro tipado, sem pânico.
   - Testes falham (não pulam) sem `dbus-daemon`; `ci.yml`: `dbus` no `rust-linux`.
 - **Test:** `logind::tests::speaks_only_to_logind_on_its_bus` (`BusMonitor` vê o cliente inibir, ler o prazo e receber `true`/`false`); fechar = EOF no fake
-- **Status:** pending
+- **Status:** completed
 
 #### T-6: UI: "Quando o computador desligar", álbum e demo
 - **DoD:** 6 · **Dependencies:** none
@@ -44,7 +44,7 @@ Specialist: `jdi-doer-bezel` (todas).
   - D-6 (1) em Tela › Ajustes: rádio por teclado, "?" em popover, desabilitada com motivo; escolher abre o diálogo in-app do que será gravado (`off` 1–10 min, sugestão 5; `video` interna e cartão, com o limite; `album`: gerenciador de `sd/image`, prévia na forma da tela antes de enviar, Preencher/Caber, remover confirmado com o nome).
   - Lógica pura em `src/standby.js`; `bridge.js` com o contrato; i18n com paridade, sem string fixa no JS; claro/escuro; movimento reduzido; demo simula tudo, inclusive `?demo=noCard`.
 - **Test:** `tests/ui/standby.test.mjs` (lógica, demo, ponte); Playwright `standby` › os 5 títulos da DoD 6 × 4 projetos com `watchErrors` e `expectAccessible`; `npm test` (≥ 80%)
-- **Status:** pending
+- **Status:** completed
 
 #### T-8: Guia en/pt-BR, protocolo §19/§20, CHANGELOG, check-docs
 - **DoD:** 8 · **Dependencies:** none
@@ -53,7 +53,7 @@ Specialist: `jdi-doer-bezel` (todas).
   - Guia: 4 opções; plano B (temporizador só com `off`; modo 2 = 1º vídeo de `sd/video`; modo 1 gira `sd/image`); vale ao desligar/reiniciar; `bezel standby`; álbum; nos índices.
   - Protocolo: §6.2/§16 com os fatos e a exceção de D-2 (5); §19 com `Start mode 1`, `Start mode 2`, `Sleep timer`, `RESTART 0x84`, `Video after the host`; §20 sem a pergunta respondida. CHANGELOG `[Unreleased]` cita "shuts down"; `"power-off.md"` em `PAGES`; README cita a escolha.
 - **Test:** DoD 8
-- **Status:** pending
+- **Status:** completed
 
 ### Wave 2 (paralela)
 
@@ -65,7 +65,7 @@ Specialist: `jdi-doer-bezel` (todas).
   - Keepalive (D-5): quadro igual e ≥ 30 s sem envio → 1 parcial mínimo (um pixel com o valor da tela) + QUERY_STATUS; antes, nada; relógio injetável (teste não dorme).
   - `bezel_media::photo`: JPEG/PNG/BMP/1º quadro de GIF com a orientação EXIF, `album_frame`, PNG nativo; sem ffmpeg.
 - **Test:** ≥ 4 `driver::turing_rev_c::tests::standby_*` no simulador de firmware (responde PLAY_VIDEO): OPTIONS inteiro; as 3 ações = pacotes exatos; keepalive; nada além. `photo::tests`: JPEG com EXIF 6 (APP1 montado no teste), vertical e horizontal
-- **Status:** pending
+- **Status:** completed
 
 #### T-4: Studio: desligamento (logind, Windows) e estado final
 - **DoD:** 2, 3, 7 · **Dependencies:** T-1, T-3
@@ -75,7 +75,7 @@ Specialist: `jdi-doer-bezel` (todas).
   - Estado final onde todo link nasce ou é emprestado (`Backend::connect`, `lend_live_link`, `go_live`, `reconnect_due`, `tick`, `StorageState::claim`); job em curso cancelado e esperado no prazo.
   - `run`: `Builder::build` + `App::run`; `RunEvent::Exit` com `session_ending()` → mesma sequência, síncrona, 4 s; sair pelo app não aplica. Guardas da DoD 7 sem relaxar regra; `the_app_setup_sends_nothing_at_start` com o `Start` novo (bus privado).
 - **Test:** ≥ 6 `power::tests::linux_*` = as cláusulas da DoD 2, com `setup` real (runtime mock), `PrivateBus`, `FakeLogind`, `FakeConnector` e um conector que trava. `power::tests::a_session_end_applies_the_choice_and_a_quit_does_not` sem runtime mock (roda no Windows)
-- **Status:** pending
+- **Status:** completed
 
 ### Wave 3 (paralela)
 
@@ -86,14 +86,14 @@ Specialist: `jdi-doer-bezel` (todas).
   - 5 comandos em `build.rs`, capability e `generate_handler!`. `set_standby`: tela conectada (a ao vivo pelo link aberto), `Confirm::Yes` só com `confirmed`; catálogo relido a cada chamada.
   - `album_add`: `photo` + `album_frame` na `screenOrientations` da tela (senão a do modelo), PNG em `<cache>`, `Manager::upload` para `sd/image` (cópia e catálogo); nome existente pede confirmação; sem cartão recusa antes de enviar.
 - **Test:** ≥ 5 `standby::tests` = a DoD 4 (catálogo em disco gravado por outro escritor; álbum vertical e horizontal); `tests::every_command_is_allowed_by_name`
-- **Status:** pending
+- **Status:** completed
 
 #### T-7: CLI `bezel standby`
 - **DoD:** 5 · **Dependencies:** T-1, T-2
 - **Files modified:** `crates/bezel-cli/src/{lib,main,standby}.rs`, `crates/bezel-cli/tests/standby.rs`
 - **Acceptance:** contrato; `show` por tela conectada; `set` sem `--yes`: nada enviado nem registrado, e a saída diz isso; com `--yes`, plano B e escolha no catálogo em disco `<data>/bezel/storage` (também com `--fake`); família ≠ rev C = `Unsupported`; `album add`: `--orientation` (padrão do modelo), `--fit` (cover), nome sugerido, `--yes` para substituir.
 - **Test:** `--test standby`, ≥ 5 do binário = a DoD 5 (`--fake`, `XDG_DATA_HOME`/`APPDATA` temporários; `DiskArchive` lê a escolha; JPEG com EXIF 6 → cópia local 480x1920 enquadrada)
-- **Status:** pending
+- **Status:** completed
 
 ## Execution
 - 3 waves (4 → 2 → 2), worktree e `CARGO_TARGET_DIR` por task. Commits na ordem dos IDs (CONTEXT): T-6 após T-5, T-8 por último. `install-local.sh` pelo orquestrador ao fim.

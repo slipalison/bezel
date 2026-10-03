@@ -3,6 +3,6 @@
 - [backlog] Linux: aplicar a escolha também ao sair da sessão (logout), não só ao desligar e reiniciar; no Windows o fim de sessão já cobre (D-2026-10-03-power-off-standby-3)
 - [backlog] Aplicar a escolha também ao sair do studio pela bandeja ou pela janela (hoje a tela congela no último quadro) (D-2026-10-03-power-off-standby-3)
 - [backlog] A escolha para outras famílias (TUR_USB; e só "Apagar" nas sem armazenamento), depois de medir no hardware (D-2026-10-03-power-off-standby-2)
-- [backlog] Aba Armazenamento: a "mídia de boot" promete um arquivo, mas no 8.8" (ROM 1.90) o modo de início 1 gira todo `sd/image` e o modo 2 toca o primeiro vídeo de `sd/video`; revisar textos e fluxo com os fatos de 2026-10-03 (D-2026-10-03-power-off-standby-2)
+- [backlog] Aba Armazenamento: a "mídia de boot" promete um arquivo, mas no 8.8" (ROM 1.90) o modo de início 1 gira todo `sd/image` e o modo 2 toca o primeiro vídeo de `sd/video`; revisar textos e fluxo com os fatos de 2026-10-03 (D-2026-10-03-power-off-standby-2) — inclui os textos do studio (`storage.warning.bootMedia`, `storage.bootSet`, `storage.confirmBootTitle`) e da CLI (aviso de mover em `crates/bezel-cli/src/storage/transfer.rs`, `boot_summary`); os guias já foram corrigidos nesta fase
 - [backlog] Escolher qual vídeo o modo de início 2 toca (exigiria reordenar os arquivos do usuário no cartão); fora desta fase pelo card (D-2026-10-03-power-off-standby-2)
 - [backlog] Álbum: zoom e posição por foto, e reenquadrar uma foto já enviada a partir da cópia local (D-2026-10-03-power-off-standby-4)
