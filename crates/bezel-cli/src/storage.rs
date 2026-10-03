@@ -1213,7 +1213,9 @@ fn play(link: &mut dyn ScreenLink, path: &RemotePath, repeat: Repeat) -> anyhow:
 
 /// What `boot` is about to do, printed with or without `--yes`: the file,
 /// and what the screen keeps with it (OPTIONS: the brightness it boots
-/// with, and its own sleep timer, which Bezel leaves off).
+/// with, and its own sleep timer, which stays as the shutdown choice set
+/// it: the minutes of a recorded `off`, else none;
+/// D-2026-10-03-power-off-standby-2 (4)).
 fn boot_summary(args: &BootArgs) -> String {
     let mut out = match &args.media {
         BootMedia::Default => "Boot media: the screen's built-in start screen\n".to_string(),
@@ -1234,7 +1236,8 @@ fn boot_summary(args: &BootArgs) -> String {
     };
     out.push_str(&format!(
         "  The screen keeps this choice with the brightness it boots with: {brightness}\n  \
-         and with its sleep timer off: it does not go to sleep on its own\n"
+         and with the sleep timer of the shutdown choice: it goes to sleep on its own\n  \
+         only when `bezel standby` chose off, after the minutes chosen there\n"
     ));
     out
 }
