@@ -35,7 +35,7 @@ use bezel_core::domain::job::{CancelToken, Job, Progress};
 use bezel_core::domain::media::{ConvertOptions, MediaKind};
 use bezel_core::domain::screen::{Brightness, Confirm};
 use bezel_core::domain::standby::{
-    Choice, Offer, PlanB, SleepMinutes, Standby, Unavailable, supports,
+    Choice, Offer, SleepMinutes, Standby, StoredPlanB, Unavailable, supports,
 };
 use bezel_core::domain::storage::{FileName, Medium, Refusal, StorageLocation};
 use bezel_core::ports::{
@@ -500,7 +500,8 @@ where
         Confirm::Yes,
     )
     .map_err(choice_error)?;
-    Ok(set_result(model.name, &standby, plan, kit.archive_dir))
+    let stored = StoredPlanB { plan, brightness };
+    Ok(set_result(model.name, &standby, stored, kit.archive_dir))
 }
 
 /// Writes what `set` is about to do; without `--yes`, says that nothing
@@ -540,12 +541,19 @@ fn choice_error(error: BezelError) -> anyhow::Error {
     }
 }
 
-fn set_result(name: &str, standby: &Standby, plan: PlanB, archive_dir: Option<&Path>) -> String {
+/// What `set` did: the choice, the plan B stored with the level chosen with
+/// it (as `show` says it, [`StoredPlanB`]) and where it is recorded.
+fn set_result(
+    name: &str,
+    standby: &Standby,
+    stored: StoredPlanB,
+    archive_dir: Option<&Path>,
+) -> String {
     let catalog = archive_dir
         .map(|dir| format!(" ({})", dir.display()))
         .unwrap_or_default();
     format!(
-        "{name}: {}\n  plan B stored on the screen: {plan}\n  recorded in Bezel's catalog{catalog}, \
+        "{name}: {}\n  plan B stored on the screen: {stored}\n  recorded in Bezel's catalog{catalog}, \
          which Bezel Studio reads to carry out the choice when the computer shuts down\n",
         done(standby)
     )
@@ -746,7 +754,7 @@ mod tests {
     use crate::{Cli, Command};
     use bezel_core::domain::archive::Catalog;
     use bezel_core::domain::device::ModelId;
-    use bezel_core::domain::standby::StoredPlanB;
+    use bezel_core::domain::standby::PlanB;
     use bezel_core::domain::storage::{RemotePath, StartMode};
     use bezel_devices::fake::{FakeStorage, Kept, StorageCall};
     use bezel_devices::{FakeBus, FakeConnector};
@@ -891,7 +899,13 @@ mod tests {
             &connector,
             &mut archive,
         );
-        assert!(out.unwrap().contains("plan B stored on the screen"));
+        let out = out.unwrap();
+        assert!(
+            out.contains(
+                "plan B stored on the screen: start mode 1, sleep timer off, brightness 40%\n"
+            ),
+            "{out}"
+        );
         let forty = Brightness::new(40).unwrap();
         let album = PlanB::new(StartMode::Image, 0);
         assert_eq!(
@@ -935,8 +949,9 @@ mod tests {
         assert_eq!(
             out.unwrap(),
             "Turing Smart Screen 8.8\": turns off when the computer shuts down\n  plan B stored \
-             on the screen: start mode 0, sleep timer 3 min\n  recorded in Bezel's catalog, \
-             which Bezel Studio reads to carry out the choice when the computer shuts down\n"
+             on the screen: start mode 0, sleep timer 3 min, brightness 40%\n  recorded in \
+             Bezel's catalog, which Bezel Studio reads to carry out the choice when the computer \
+             shuts down\n"
         );
         assert!(log.contains("40% (--brightness)"), "{log}");
         assert!(!log.contains("Nothing was sent"), "{log}");
