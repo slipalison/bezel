@@ -16,7 +16,9 @@ use bezel_core::domain::geometry::Size;
 use bezel_core::domain::job::Job;
 use bezel_core::domain::media::{MediaInfo, MediaTools, StreamSpec, TranscodeTarget};
 use bezel_core::domain::poster::PosterSpec;
-use bezel_core::domain::standby::{SleepMinutes, Standby};
+use bezel_core::domain::screen::Brightness;
+use bezel_core::domain::standby::{PlanB, SleepMinutes, Standby, StoredPlanB};
+use bezel_core::domain::storage::StartMode;
 use bezel_core::domain::storage::{BootMedia, RemotePath};
 use bezel_core::ports::{ArchiveStore, MediaLocation, MediaTranscoder, VideoFrames};
 use bezel_core::{BezelError, Result};
@@ -112,6 +114,10 @@ fn sample_catalog(ids: &[ContentId]) -> Catalog {
     let desk = catalog.screen_mut(&named);
     desk.record(entry);
     desk.standby = Standby::Off(SleepMinutes::new(7).unwrap());
+    desk.stored = Some(StoredPlanB {
+        plan: PlanB::new(StartMode::Video, 7),
+        brightness: Some(Brightness::new(40).unwrap()),
+    });
     catalog
 }
 
@@ -349,6 +355,11 @@ fn a_damaged_catalog_is_an_error_naming_it_and_is_left_as_it_is() {
             r#"{{"schema": 1, "limit": 5, "screens": [{{"model": "turing-8.8", "standby": {choice}}}]}}"#
         )
     };
+    let plan_b = |plan: &str| {
+        format!(
+            r#"{{"schema": 1, "limit": 5, "screens": [{{"model": "turing-8.8", "planB": {plan}}}]}}"#
+        )
+    };
     let cases: Vec<(String, &str)> = vec![
         (String::new(), "EOF"),
         (r#"{"schema": 1, "limit": "#.into(), "EOF"),
@@ -384,6 +395,18 @@ fn a_damaged_catalog_is_an_error_naming_it_and_is_left_as_it_is() {
             standby(r#"{"choice": "video", "file": "sd/image/a.png"}"#),
             "not in a video folder",
         ),
+        (
+            plan_b(r#"{"startMode": 3, "sleepMinutes": 0}"#),
+            "screen turing-8.8: plan B: unknown start mode 3",
+        ),
+        (
+            plan_b(r#"{"startMode": 0, "sleepMinutes": 11}"#),
+            "plan B: a sleep timer of 11 minutes",
+        ),
+        (
+            plan_b(r#"{"startMode": 1, "sleepMinutes": 0, "brightness": 101}"#),
+            "plan B: brightness 101% (0 to 100)",
+        ),
     ];
     for (text, why) in cases {
         fs::write(&path, &text).unwrap();
@@ -402,14 +425,26 @@ fn a_damaged_catalog_is_an_error_naming_it_and_is_left_as_it_is() {
     let record = catalog.screen(&ScreenKey::new(ModelId("turing-8.8")));
     assert_eq!(record.unwrap().entries[0].state, EntryState::Stored);
     assert_eq!(record.unwrap().standby, Standby::Keep);
+    assert_eq!(record.unwrap().stored, None, "no plan B recorded");
     fs::write(&path, standby(r#"{"choice": "album"}"#)).unwrap();
     let record = store.load().unwrap().screens.into_values().next().unwrap();
     assert_eq!(record.standby, Standby::Album);
+    fs::write(&path, plan_b(r#"{"startMode": 1, "sleepMinutes": 0}"#)).unwrap();
+    let record = store.load().unwrap().screens.into_values().next().unwrap();
+    let album = PlanB::new(StartMode::Image, 0);
+    assert_eq!(
+        record.stored,
+        Some(StoredPlanB {
+            plan: album,
+            brightness: None
+        })
+    );
     // Keep is never written: the field's absence means it.
     let mut kept = Catalog::default();
     kept.screen_mut(&ScreenKey::new(ModelId("turing-8.8")));
     store.save(&kept).unwrap();
     assert!(!fs::read_to_string(&path).unwrap().contains("standby"));
+    assert!(!fs::read_to_string(&path).unwrap().contains("planB"));
     assert_eq!(store.load().unwrap(), kept);
 
     // A store cannot live inside a file.

@@ -327,8 +327,9 @@ mod dto {
         ArchiveEntry, Catalog, ContentId, EntryState, ScreenKey, ScreenRecord,
     };
     use bezel_core::domain::geometry::Size;
-    use bezel_core::domain::standby::{Choice, SleepMinutes, Standby};
-    use bezel_core::domain::storage::RemotePath;
+    use bezel_core::domain::screen::Brightness;
+    use bezel_core::domain::standby::{Choice, PlanB, SleepMinutes, Standby, StoredPlanB};
+    use bezel_core::domain::storage::{RemotePath, StartMode};
     use bezel_core::{BezelError, Result};
     use serde::{Deserialize, Serialize};
 
@@ -368,8 +369,26 @@ mod dto {
         /// `keep` (catalogs written before the choice existed read so).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         standby: Option<StandbyDto>,
+        /// The plan B Bezel last stored on the screen (OPTIONS); absent:
+        /// none recorded (catalogs written before it was kept read so).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        plan_b: Option<PlanBDto>,
         #[serde(default)]
         entries: Vec<EntryDto>,
+    }
+
+    /// A plan B stored on a screen.
+    #[derive(Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct PlanBDto {
+        /// The OPTIONS start mode: 0 the built-in screen, 1 the images, 2
+        /// the videos.
+        start_mode: u8,
+        /// The sleep timer, 0 (none) to 10 minutes.
+        sleep_minutes: u8,
+        /// The level stored with it, in percent, when the user chose one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        brightness: Option<u8>,
     }
 
     /// A choice other than `keep`.
@@ -477,6 +496,7 @@ mod dto {
                 name: key.name.clone(),
                 boot: record.boot.as_ref().map(RemotePath::to_string),
                 standby: StandbyDto::of(&record.standby),
+                plan_b: record.stored.as_ref().map(PlanBDto::of),
                 entries: record.entries.iter().map(EntryDto::of).collect(),
             }
         }
@@ -489,10 +509,12 @@ mod dto {
             let in_screen = |why: String| format!("screen {key}: {why}");
             let boot = self.boot.as_deref().map(path).transpose();
             let standby = self.standby.map(StandbyDto::into_core).transpose();
+            let stored = self.plan_b.map(PlanBDto::into_core).transpose();
             let entries = self.entries.into_iter().map(EntryDto::into_core);
             let record = ScreenRecord {
                 boot: boot.map_err(in_screen)?,
                 standby: standby.map_err(in_screen)?.unwrap_or_default(),
+                stored: stored.map_err(in_screen)?,
                 entries: entries.collect::<R<Vec<_>>>().map_err(in_screen)?,
             };
             Ok((key, record))
@@ -517,6 +539,46 @@ mod dto {
                 .ok_or_else(|| format!("unknown standby choice {:?}", self.choice))?;
             Standby::from_parts(choice, self.sleep_minutes, self.file.as_deref())
                 .map_err(|e| format!("standby: {e}"))
+        }
+    }
+
+    impl PlanBDto {
+        fn of(stored: &StoredPlanB) -> Self {
+            Self {
+                start_mode: match stored.plan.start_mode {
+                    StartMode::Default => 0,
+                    StartMode::Image => 1,
+                    StartMode::Video => 2,
+                },
+                sleep_minutes: stored.plan.sleep_minutes,
+                brightness: stored.brightness.map(Brightness::percent),
+            }
+        }
+
+        fn into_core(self) -> R<StoredPlanB> {
+            let start_mode = match self.start_mode {
+                0 => StartMode::Default,
+                1 => StartMode::Image,
+                2 => StartMode::Video,
+                other => return Err(format!("plan B: unknown start mode {other}")),
+            };
+            if self.sleep_minutes > SleepMinutes::MAX.get() {
+                return Err(format!(
+                    "plan B: a sleep timer of {} minutes",
+                    self.sleep_minutes
+                ));
+            }
+            let brightness = self
+                .brightness
+                .map(|level| {
+                    Brightness::new(level)
+                        .ok_or_else(|| format!("plan B: brightness {level}% (0 to 100)"))
+                })
+                .transpose()?;
+            Ok(StoredPlanB {
+                plan: PlanB::new(start_mode, self.sleep_minutes),
+                brightness,
+            })
         }
     }
 

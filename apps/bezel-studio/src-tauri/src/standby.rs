@@ -261,7 +261,9 @@ impl Backend {
             let key = ScreenKey::new(link.identity().model.id);
             {
                 let mut store = self.storage.archive();
-                choose(link, store.as_mut(), &key, standby, confirm).map_err(without_card)?;
+                // The level the link has now goes with the plan B: none is
+                // chosen here ("the level it has now", the dialog says).
+                choose(link, store.as_mut(), &key, standby, None, confirm).map_err(without_card)?;
             }
             self.overview_on(link, screen, found.as_ref())
         })

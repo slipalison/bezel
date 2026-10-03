@@ -484,18 +484,15 @@ where
             done(&standby)
         ));
     }
-    // OPTIONS carries the brightness the link last set (a family without
-    // the choice gets nothing: the core refuses it).
-    if let Some(level) = brightness
-        && supports(model)
-    {
-        link.set_brightness(level)?;
-    }
+    // The core sets the level first, so that the OPTIONS carries it, and
+    // records it with the plan B (a family without the choice gets
+    // nothing: the core refuses it).
     let plan = usecase::choose(
         link.as_mut(),
         kit.archive,
         &key,
         standby.clone(),
+        brightness,
         Confirm::Yes,
     )
     .map_err(choice_error)?;
@@ -745,6 +742,7 @@ mod tests {
     use crate::{Cli, Command};
     use bezel_core::domain::archive::Catalog;
     use bezel_core::domain::device::ModelId;
+    use bezel_core::domain::standby::StoredPlanB;
     use bezel_core::domain::storage::{RemotePath, StartMode};
     use bezel_devices::fake::{FakeStorage, Kept, StorageCall};
     use bezel_devices::{FakeBus, FakeConnector};
@@ -1182,6 +1180,45 @@ mod tests {
         );
         assert!(
             out.contains("album  the photo album of the card (sd/image): not now, no memory card"),
+            "{out}"
+        );
+
+        // Review W4 and W7 (iteration 1): the plan B is the one the record
+        // says was stored last, with the level chosen with it.
+        let (out, _) = standby(
+            &[
+                "bezel",
+                "standby",
+                "set",
+                "album",
+                "--brightness",
+                "40",
+                "--yes",
+            ],
+            &connector,
+            &mut archive,
+        );
+        out.unwrap();
+        let (out, _) = standby(&["bezel", "standby", "show"], &connector, &mut archive);
+        assert!(out.unwrap().contains(
+            "plan B:                       start mode 1, sleep timer off, brightness 40%\n"
+        ));
+        // The boot media set afterwards (`bezel storage boot`) wins on the
+        // screen: `show` says its plan B, the choice stays.
+        let mut catalog = archive.load().unwrap();
+        catalog.screen_mut(&key()).stored = Some(StoredPlanB {
+            plan: PlanB::new(StartMode::Video, 0),
+            brightness: None,
+        });
+        archive.save(&catalog).unwrap();
+        let (out, _) = standby(&["bezel", "standby", "show"], &connector, &mut archive);
+        let out = out.unwrap();
+        assert!(
+            out.contains("restart the screen into the photo album"),
+            "{out}"
+        );
+        assert!(
+            out.contains("plan B:                       start mode 2, sleep timer off\n"),
             "{out}"
         );
 

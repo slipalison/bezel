@@ -735,7 +735,9 @@ mod tests {
         MediaFormat, MediaInfo, MediaTools, StreamSpec, TranscodeTarget,
     };
     use bezel_core::domain::screen::Confirm;
-    use bezel_core::domain::standby::{RecordedChoice, SleepMinutes, Standby, Unavailable};
+    use bezel_core::domain::standby::{
+        PlanB as Plan, RecordedChoice, SleepMinutes, Standby, StoredPlanB, Unavailable,
+    };
     use bezel_core::domain::storage::{BootMedia, Capacity, Operation, UploadAction, UploadPlan};
     use bezel_core::ports::{ArchiveStore, MediaLocation, MediaTranscoder, VideoFrames};
 
@@ -2328,7 +2330,7 @@ mod tests {
         ];
         for (choice, packets, stored) in cases {
             let from = s.wire().sent.len();
-            standby::choose(&mut s, &mut store, &key, choice.clone(), Confirm::Yes).unwrap();
+            standby::choose(&mut s, &mut store, &key, choice.clone(), None, Confirm::Yes).unwrap();
             assert_eq!(writes(&s, from), packets, "{choice:?}");
             assert_eq!(s.wire().options, Some(stored), "{choice:?}");
             let recorded = store.0.screen(&key).map(|r| r.standby.clone());
@@ -2337,8 +2339,8 @@ mod tests {
 
         // From keep to keep, and without the user's yes: nothing at all.
         let from = s.wire().sent.len();
-        standby::choose(&mut s, &mut store, &key, Standby::Keep, Confirm::Yes).unwrap();
-        let refused = standby::choose(&mut s, &mut store, &key, Standby::Album, Confirm::No);
+        standby::choose(&mut s, &mut store, &key, Standby::Keep, None, Confirm::Yes).unwrap();
+        let refused = standby::choose(&mut s, &mut store, &key, Standby::Album, None, Confirm::No);
         assert!(
             matches!(refused, Err(BezelError::NotConfirmed(_))),
             "{refused:?}"
@@ -2350,7 +2352,7 @@ mod tests {
         store.0.screen_mut(&key).boot = Some(path("internal/video/intro.mp4"));
         let from = s.wire().sent.len();
         let ten = Standby::Off(SleepMinutes::MAX);
-        let plan = standby::choose(&mut s, &mut store, &key, ten, Confirm::Yes).unwrap();
+        let plan = standby::choose(&mut s, &mut store, &key, ten, None, Confirm::Yes).unwrap();
         assert_eq!(plan, PlanB::new(StartMode::Video, 10));
         assert_eq!(writes(&s, from), [options(proto::StartMode::Video, 10)]);
         assert!(s.wire().commands.iter().all(|o| !NEVER.contains(o)));
@@ -2429,6 +2431,44 @@ mod tests {
             fw.reads.iter().all(|(written, _)| *written < all),
             "nothing waited for after RESTART"
         );
+        assert!(fw.commands.iter().all(|o| !NEVER.contains(o)));
+    }
+
+    /// Review W4 (iteration 1): a level stored with the plan B
+    /// (`--brightness 40`) is set again before the album's OPTIONS, which
+    /// then carries it (102 of 255), not the live link's 25 % (64).
+    #[test]
+    fn standby_album_restarts_at_the_level_stored_with_the_plan_b() {
+        let (mut s, _) = live_screen(&NoPause, true);
+        let key = ScreenKey::new(ModelId("turing-8.8"));
+        let mut store = Store::default();
+        let record = store.0.screen_mut(&key);
+        record.standby = Standby::Album;
+        record.stored = Some(StoredPlanB {
+            plan: Plan::new(StartMode::Image, 0),
+            brightness: Brightness::new(40),
+        });
+        let choice = standby::recorded_choice(&mut store, &key).unwrap();
+        let from = s.wire().sent.len();
+        assert_eq!(standby::at_shutdown(&mut s, &choice), Ok(Applied::Album));
+        let at_forty = packet(proto::set_options(Options {
+            brightness: 102,
+            start_mode: proto::StartMode::Image,
+            flip: false,
+            sleep_minutes: 0,
+        }));
+        assert_eq!(
+            writes(&s, from),
+            [
+                packet(proto::storage_info()),
+                packet(proto::set_brightness(102)),
+                at_forty,
+                packet(proto::simple(op::RESTART)),
+            ]
+        );
+        let fw = s.wire();
+        assert_eq!(fw.options, Some([102, 1, 0, 0, 0]));
+        assert!(fw.restarted);
         assert!(fw.commands.iter().all(|o| !NEVER.contains(o)));
     }
 

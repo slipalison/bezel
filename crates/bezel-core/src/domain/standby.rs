@@ -18,6 +18,7 @@ use super::frame::{Frame, RGBA_BYTES};
 use super::framing::{ResolvedFraming, VideoFit, frame_picture};
 use super::geometry::Orientation;
 use super::media::MediaKind;
+use super::screen::Brightness;
 use super::storage::{BootMedia, RemotePath, StartMode};
 use crate::{BezelError, Result};
 
@@ -200,19 +201,28 @@ fn video_path(text: &str) -> Result<RemotePath> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordedChoice {
     standby: Standby,
+    brightness: Option<Brightness>,
 }
 
 impl RecordedChoice {
-    /// The choice `record` holds (`keep` without a record).
+    /// The choice `record` holds (`keep` without a record), and the level
+    /// the plan B it last stored starts with, when the user chose one.
     pub(crate) fn of(record: Option<&ScreenRecord>) -> Self {
         Self {
             standby: record.map(|r| r.standby.clone()).unwrap_or_default(),
+            brightness: record.and_then(ScreenRecord::start_brightness),
         }
     }
 
     /// The choice.
     pub fn standby(&self) -> &Standby {
         &self.standby
+    }
+
+    /// The backlight level stored with the screen's last plan B, when the
+    /// user chose one ([`StoredPlanB::brightness`]).
+    pub fn brightness(&self) -> Option<Brightness> {
+        self.brightness
     }
 }
 
@@ -244,6 +254,34 @@ impl PlanB {
     pub fn with_boot(boot: &BootMedia, standby: &Standby) -> Self {
         let sleep = standby.sleep_minutes().map_or(0, SleepMinutes::get);
         Self::new(boot.start_mode(), sleep)
+    }
+}
+
+/// The plan B Bezel last stored on a screen (its OPTIONS), as the screen's
+/// catalog record keeps it: by the choice (`app::standby::choose`) or by the
+/// boot media (`Manager::set_boot_media`), whichever came last, since both
+/// write the same OPTIONS (D-2026-10-03-power-off-standby-2 (4)), with the
+/// backlight level stored with it when the user chose one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct StoredPlanB {
+    /// What the screen does on its own.
+    pub plan: PlanB,
+    /// The level the screen starts with, when the user chose one (the
+    /// CLI's `--brightness`, the storage tab's level); the album's restart
+    /// at shutdown writes it again. `None`: the level the link had then,
+    /// which is not known here.
+    pub brightness: Option<Brightness>,
+}
+
+impl fmt::Display for StoredPlanB {
+    /// The plan B ([`PlanB`]'s text), then `, brightness N%` when one was
+    /// chosen.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.plan)?;
+        match self.brightness {
+            Some(level) => write!(f, ", brightness {}%", level.percent()),
+            None => Ok(()),
+        }
     }
 }
 

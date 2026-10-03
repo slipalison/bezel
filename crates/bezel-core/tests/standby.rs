@@ -11,14 +11,14 @@ use bezel_core::app::standby::{self, Applied};
 use bezel_core::domain::archive::{Catalog, ContentId, ScreenKey};
 use bezel_core::domain::device::{ModelId, Transport, UsbId};
 use bezel_core::domain::discovery::{DeviceAddress, Endpoint};
-use bezel_core::domain::screen::Confirm;
+use bezel_core::domain::screen::{Brightness, Confirm};
 use bezel_core::domain::standby::{
-    Choice, PlanB, RecordedChoice, SleepMinutes, Standby, Unavailable,
+    Choice, PlanB, RecordedChoice, SleepMinutes, Standby, StoredPlanB, Unavailable,
 };
 use bezel_core::domain::storage::{BootMedia, Refusal, RemotePath, Repeat, StartMode};
 use bezel_core::ports::{ArchiveStore, ScreenLink};
 use bezel_core::{BezelError, Result};
-use bezel_devices::fake::{FakeStorage, StorageCall};
+use bezel_devices::fake::{FakeStorage, Kept, StorageCall};
 use bezel_devices::{FakeBus, FakeConnector};
 use bezel_media::archive::MemoryArchive;
 
@@ -158,7 +158,7 @@ fn choose(
     standby: Standby,
     confirm: Confirm,
 ) -> Result<PlanB> {
-    standby::choose(link, store, &key(), standby, confirm)
+    standby::choose(link, store, &key(), standby, None, confirm)
 }
 
 #[test]
@@ -258,7 +258,7 @@ fn off_album_and_video_write_their_plan_b_and_record_the_choice() {
     assert_eq!(connector.log().brightness, [], "the link's level stays");
     let shown = standby::show(link.as_mut(), &mut store, &key()).expect("shows");
     assert_eq!(shown.standby.choice(), Choice::Video);
-    assert_eq!(shown.plan_b, PlanB::new(StartMode::Video, 0));
+    assert_eq!(shown.plan_b.plan, PlanB::new(StartMode::Video, 0));
 }
 
 #[test]
@@ -376,6 +376,86 @@ fn the_boot_media_and_the_sleep_timer_keep_each_other() {
     )
     .expect("off");
     assert_eq!(options(&connector), Some(PlanB::new(StartMode::Image, 1)));
+}
+
+/// Review W7 and W4 (iteration 1): the record says which plan B Bezel
+/// stored last, the choice's or the boot media's set after it, and `show`
+/// says that one (D-2026-10-03-power-off-standby-2 (4)). A level chosen with
+/// the plan B (`--brightness`) is set before its OPTIONS, so the OPTIONS
+/// carries it, is recorded with it, and the album's restart at shutdown
+/// writes it again: the screen starts with it after that restart too.
+#[test]
+fn the_plan_b_stored_last_shows_and_its_level_holds_at_shutdown() {
+    let album = PlanB::new(StartMode::Image, 0);
+    let forty = Brightness::new(40).expect("level");
+    let connector = FakeConnector::with_storage(stocked());
+    let mut link = open(&connector);
+    let mut store = Counted::default();
+    standby::choose(
+        link.as_mut(),
+        &mut store,
+        &key(),
+        Standby::Album,
+        Some(forty),
+        Confirm::Yes,
+    )
+    .expect("album");
+    assert_eq!(
+        connector.log().kept,
+        [Kept::Brightness(forty), Kept::Options(album, Some(forty))]
+    );
+    let shown = standby::show(link.as_mut(), &mut store, &key()).expect("shows");
+    let stored = StoredPlanB {
+        plan: album,
+        brightness: Some(forty),
+    };
+    assert_eq!(shown.plan_b, stored);
+    assert_eq!(
+        stored.to_string(),
+        "start mode 1, sleep timer off, brightness 40%"
+    );
+
+    // At shutdown, on a link opened for it (no level set on it yet).
+    let restart = |store: &mut Counted| {
+        let opened = FakeConnector::with_storage(stocked());
+        let mut link = open(&opened);
+        let applied = standby::at_shutdown(link.as_mut(), &recorded_in(store));
+        assert_eq!(applied, Ok(Applied::Album));
+        assert_eq!(
+            calls(&opened),
+            [
+                StorageCall::Info,
+                StorageCall::Options(album),
+                StorageCall::Restart
+            ]
+        );
+        opened.log().kept
+    };
+    assert_eq!(
+        restart(&mut store),
+        [Kept::Brightness(forty), Kept::Options(album, Some(forty))]
+    );
+
+    // The boot media set afterwards is what the screen keeps, and what
+    // `show` says; the choice stays, and its restart takes the link's level.
+    Manager::new(link.as_mut(), &mut store)
+        .named("desk")
+        .set_boot_media(
+            &BootMedia::File(remote("internal/video/intro.mp4")),
+            None,
+            Confirm::Yes,
+        )
+        .expect("boot media");
+    let shown = standby::show(link.as_mut(), &mut store, &key()).expect("shows");
+    assert_eq!(shown.standby, Standby::Album);
+    assert_eq!(
+        shown.plan_b,
+        StoredPlanB {
+            plan: PlanB::new(StartMode::Video, 0),
+            brightness: None
+        }
+    );
+    assert_eq!(restart(&mut store), [Kept::Options(album, None)]);
 }
 
 #[test]
@@ -527,7 +607,7 @@ fn show_reads_the_choice_and_offers_what_the_screen_has() {
     let shown = standby::show(link.as_mut(), &mut store, &key()).expect("shows");
     assert_eq!(shown.key, key());
     assert_eq!(shown.standby, Standby::Off(minutes(4)));
-    assert_eq!(shown.plan_b, PlanB::new(StartMode::Default, 4));
+    assert_eq!(shown.plan_b.plan, PlanB::new(StartMode::Default, 4));
     assert!(shown.offer.card);
     assert_eq!(
         shown.offer.videos,

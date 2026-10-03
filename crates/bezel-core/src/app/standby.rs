@@ -13,15 +13,15 @@
 //! frame.
 
 use crate::app::storage::{Presence, ensure_stored, presence, storage_of};
-use crate::domain::archive::ScreenKey;
+use crate::domain::archive::{ScreenKey, ScreenRecord};
 use crate::domain::media::MediaKind;
-use crate::domain::screen::Confirm;
+use crate::domain::screen::{Brightness, Confirm};
 use crate::domain::standby::{
-    Offer, PlanB, RecordedChoice, Standby, StandbyOption, Unavailable, supports, unavailable,
+    Offer, PlanB, RecordedChoice, Standby, StandbyOption, StoredPlanB, Unavailable, supports,
+    unavailable,
 };
 use crate::domain::storage::{
-    BootMedia, Confirmed, Medium, Operation, Refusal, RemotePath, Repeat, StartMode,
-    StorageLocation,
+    Confirmed, Medium, Operation, Refusal, RemotePath, Repeat, StartMode, StorageLocation,
 };
 use crate::ports::{ArchiveStore, ScreenLink, ScreenStorage};
 use crate::{BezelError, Result};
@@ -33,9 +33,10 @@ pub struct StandbyOverview {
     pub key: ScreenKey,
     /// The recorded choice (`keep` when none was recorded).
     pub standby: Standby,
-    /// The plan B the recorded choice writes next to the recorded boot
-    /// media ([`crate::domain::archive::ScreenRecord::plan_b`]).
-    pub plan_b: PlanB,
+    /// The plan B on the screen as the record says: the one Bezel stored
+    /// last, by the choice or the boot media set after it, with its level
+    /// when one was chosen ([`ScreenRecord::plan_b`]).
+    pub plan_b: StoredPlanB,
     /// What the screen offers: its card and stored videos (nothing for a
     /// family without the choice).
     pub offer: Offer,
@@ -52,7 +53,8 @@ pub enum Applied {
     TurnedOff,
     /// `video`: the stored video loops.
     Video(RemotePath),
-    /// `album`: start mode 1 was written and the screen restarts into the
+    /// `album`: start mode 1 was written (with the level stored with the
+    /// last plan B, when one was chosen) and the screen restarts into the
     /// photos of its card.
     Album,
     /// The choice could not be honoured (the video is gone, no card): the
@@ -72,14 +74,10 @@ fn ensure_supported(link: &dyn ScreenLink) -> Result<()> {
     )))
 }
 
-/// The choice and the boot media recorded for `key` (`keep` and the
-/// default start screen without a record). Only reads the store.
-fn recorded(store: &mut dyn ArchiveStore, key: &ScreenKey) -> Result<(Standby, BootMedia)> {
-    let catalog = store.load()?;
-    let record = catalog.screen(key);
-    Ok(record.map_or((Standby::Keep, BootMedia::Default), |r| {
-        (r.standby.clone(), r.boot_media())
-    }))
+/// The record of `key` (an empty one, `keep` and the default start screen,
+/// without one). Only reads the store.
+fn record_of(store: &mut dyn ArchiveStore, key: &ScreenKey) -> Result<ScreenRecord> {
+    Ok(store.load()?.screen(key).cloned().unwrap_or_default())
 }
 
 /// The choice of the screen behind `link` (keyed `key` in the catalog of
@@ -92,8 +90,12 @@ pub fn show(
     store: &mut dyn ArchiveStore,
     key: &ScreenKey,
 ) -> Result<StandbyOverview> {
-    let (standby, boot) = recorded(store, key)?;
-    let plan_b = standby.plan_b(boot.start_mode());
+    let record = record_of(store, key)?;
+    let plan_b = StoredPlanB {
+        plan: record.plan_b(),
+        brightness: record.start_brightness(),
+    };
+    let standby = record.standby;
     let (offer, options) = if supports(link.identity().model) {
         let offer = offer(storage_of(link)?)?;
         let options = offer.options();
@@ -131,35 +133,43 @@ fn offer(storage: &mut dyn ScreenStorage) -> Result<Offer> {
 
 /// Changes the choice of the screen behind `link` to `standby`: writes its
 /// plan B on the screen (OPTIONS whole, [`Standby::plan_b`] next to the
-/// recorded boot media), then records the choice under `key` in the
-/// catalog of `store`, and returns the plan B written
+/// recorded boot media), `brightness` first when the user chose one, so
+/// that the OPTIONS carries it and the screen starts with it; then records
+/// the choice under `key` in the catalog of `store` with the plan B stored
+/// ([`ScreenRecord::stored`]), and returns that plan B
 /// (D-2026-10-03-power-off-standby-2 (3)).
 ///
 /// `Confirm::No`: nothing sent, loaded or saved. A family without the
 /// choice: `Unsupported`, nothing sent. From `keep` to `keep`: nothing sent
-/// nor saved. Before writing, the screen is asked whether the choice can be
-/// honoured: `video` needs its file stored (`InvalidInput` otherwise),
-/// `album` a card (`Refused(NoCard)`). The catalog is read again right
-/// before it is saved, so another writer's changes stay.
+/// nor saved, not even the level. Before writing, the screen is asked
+/// whether the choice can be honoured: `video` needs its file stored
+/// (`InvalidInput` otherwise), `album` a card (`Refused(NoCard)`). The
+/// catalog is read again right before it is saved, so another writer's
+/// changes stay.
 pub fn choose(
     link: &mut dyn ScreenLink,
     store: &mut dyn ArchiveStore,
     key: &ScreenKey,
     standby: Standby,
+    brightness: Option<Brightness>,
     confirm: Confirm,
 ) -> Result<PlanB> {
     let confirmed = Confirmed::require(confirm, &Operation::Standby(standby.clone()))?;
     ensure_supported(link)?;
-    let (current, boot) = recorded(store, key)?;
-    let plan = standby.plan_b(boot.start_mode());
-    if current == Standby::Keep && standby == Standby::Keep {
+    let record = record_of(store, key)?;
+    let plan = standby.plan_b(record.boot_media().start_mode());
+    if record.standby == Standby::Keep && standby == Standby::Keep {
         return Ok(plan);
     }
-    let storage = storage_of(link)?;
-    honoured(storage, &standby)?;
-    storage.set_options(plan, confirmed)?;
+    honoured(storage_of(link)?, &standby)?;
+    if let Some(level) = brightness {
+        link.set_brightness(level)?;
+    }
+    storage_of(link)?.set_options(plan, confirmed)?;
     let mut catalog = store.load()?;
-    catalog.screen_mut(key).standby = standby;
+    let record = catalog.screen_mut(key);
+    record.standby = standby;
+    record.stored = Some(StoredPlanB { plan, brightness });
     store.save(&catalog)?;
     Ok(plan)
 }
@@ -198,8 +208,10 @@ pub fn recorded_choice(store: &mut dyn ArchiveStore, key: &ScreenKey) -> Result<
 /// - `off`: [`ScreenLink::turn_off_now`];
 /// - `video`: a size query, then its file loops ([`ScreenStorage::play_video`]
 ///   with [`Repeat::Loop`]);
-/// - `album`: a storage info query, then the plan B of `album` (start mode
-///   1, no timer, [`ScreenStorage::set_options`]) and
+/// - `album`: a storage info query, then the level stored with the last
+///   plan B when the user chose one ([`RecordedChoice::brightness`]), the
+///   plan B of `album` (start mode 1, no timer,
+///   [`ScreenStorage::set_options`], which carries that level) and
 ///   [`ScreenStorage::restart`];
 /// - a video that is gone or an album without a card: `turn_off_now`
 ///   instead ([`Applied::TurnedOffInstead`]).
@@ -237,12 +249,17 @@ fn loop_video(link: &mut dyn ScreenLink, path: &RemotePath) -> Result<Applied> {
     Ok(Applied::Video(path.clone()))
 }
 
-/// `album` at shutdown: start mode 1 and a restart, with a card.
+/// `album` at shutdown: start mode 1 at the level the user stored with the
+/// plan B (review W4: `--brightness` holds after the restart too), and a
+/// restart, with a card.
 fn restart_into_album(link: &mut dyn ScreenLink, choice: &RecordedChoice) -> Result<Applied> {
-    let storage = storage_of(link)?;
-    if storage.info()?.card.is_none() {
+    if storage_of(link)?.info()?.card.is_none() {
         return turned_off_instead(link, Unavailable::NoCard);
     }
+    if let Some(level) = choice.brightness() {
+        link.set_brightness(level)?;
+    }
+    let storage = storage_of(link)?;
     let plan = choice.standby().plan_b(StartMode::Default);
     storage.set_options(plan, Confirmed::recorded(choice))?;
     storage.restart(Confirmed::recorded(choice))?;
