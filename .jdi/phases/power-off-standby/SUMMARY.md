@@ -51,20 +51,22 @@
   logind; `at_shutdown(link, store, key)` lê a escolha no core; o `album` registra o plano B que grava; 0x7B do álbum
   (D-9); `createAnswers` na UI; o `set` mostra o brilho. 1041 testes, 94,90 % de linhas.
 
+- Rodada de avisos (passo 6 do /jdi-issue, `b3f70d1..b654f8c`): catálogo travado por chamada no desligamento (`ArchivePerCall`), `Applied::AlbumNotRecorded` + `DiagCode::ShutdownAlbumNotRecorded`, a UI relê a tela depois de uma escrita concorrente; 1045 testes, 94,90 % de linhas.
+
 ## Deviations
 - D-7 (orquestrador, antes do loop): contagens mínimas no DoD e Windows provado por teste + clippy msvc local.
 - `bezel-power` devolve `Result` em `inhibit`/`delay_max`/`wait` (o PLAN dizia valor puro): exigido pelo próprio
   critério "sem logind = erro tipado".
 - T-2: o limite de um STOP_MEDIA vale para todo play (o driver não sabe se é desligamento); o 8.8" responde na 1ª.
 - Contratos mudados na iteração 2: `album_add` + `replace`, `choose(..., brightness, ...)`, `at_shutdown(link,
-  store, key)` (iteração 3; `RecordedChoice` privado), `Offer.videos: Vec<FileEntry>`.
+  store, key)` (iteração 3; `RecordedChoice` privado), `Applied::AlbumNotRecorded` (rodada de avisos), `Offer.videos: Vec<FileEntry>`.
 - T-6 ajustou `tests/ui/storage.test.mjs`; T-5 ganhou `StorageState::scratch()`; T-7 tornou `pub(crate)` 4 helpers de
   `storage.rs` da CLI (fora de `files_modified`, mínimos).
 
 ## Gates
 - `fmt`, `clippy -D warnings` (Linux e msvc sem studio), `cargo test --workspace`, `npm test`, `check-docs.sh` e as 8
-  linhas do DoD: OK no branch integrado. `studio-starts-silent.sh`: OK (4 execuções; o studio de teste nunca abriu
-  `/dev/ttyACM*`).
+  linhas do DoD: OK em `b654f8c` (1045 testes, 94,90 %); CI `37159714157` verde, `rust-windows` incluso.
+  `studio-starts-silent.sh`: OK (o studio de teste nunca abriu `/dev/ttyACM*`).
 
 ## Notes
 - Fica para o PR: desligar de verdade com o 8.8" em cada opção e religar; desligar no Windows; revisão visual.
