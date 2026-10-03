@@ -397,7 +397,7 @@ where
     }
 }
 
-const NOTHING_SENT: &str = "Nothing was sent to the screen.";
+pub(crate) const NOTHING_SENT: &str = "Nothing was sent to the screen.";
 
 /// Said when a command that only queried the screen stops for `--yes`.
 const NOTHING_CHANGED: &str = "Nothing on the screen was changed.";
@@ -461,7 +461,7 @@ where
 }
 
 /// A size as people read it: bytes, then KiB, MiB, GiB with one decimal.
-fn size_text(bytes: u64) -> String {
+pub(crate) fn size_text(bytes: u64) -> String {
     const UNITS: [&str; 4] = ["KiB", "MiB", "GiB", "TiB"];
     if bytes < 1024 {
         return format!("{bytes} B");
@@ -1024,7 +1024,7 @@ fn explain(error: BezelError) -> anyhow::Error {
 /// `Unsupported` for delete, boot and playing once,
 /// D-2026-09-30-storage-video-7; files whose size it cannot report are
 /// listed and played as present); refusals are explained.
-fn screen_error(what: &'static str) -> impl Fn(BezelError) -> anyhow::Error {
+pub(crate) fn screen_error(what: &'static str) -> impl Fn(BezelError) -> anyhow::Error {
     move |error| match error {
         BezelError::Unsupported(reason) => {
             anyhow!("this screen does not support {what} ({reason})")
@@ -1034,7 +1034,7 @@ fn screen_error(what: &'static str) -> impl Fn(BezelError) -> anyhow::Error {
 }
 
 /// The error of an interrupted upload, with what to do about a partial file.
-fn cancelled(path: &RemotePath, partial: Option<u64>) -> anyhow::Error {
+pub(crate) fn cancelled(path: &RemotePath, partial: Option<u64>) -> anyhow::Error {
     match partial {
         Some(bytes) => anyhow!(
             "cancelled; an incomplete file of {} remains at {path}: delete it with \
