@@ -244,6 +244,11 @@ impl StorageState {
         lock(&self.archive)
     }
 
+    /// Where files written to be sent wait for their upload (`<cache>/sending`).
+    pub(crate) fn scratch(&self) -> &Path {
+        &self.scratch
+    }
+
     /// The thumbnails of the local copies.
     pub(crate) fn pictures(&self) -> &dyn Pictures {
         self.pictures.as_ref()

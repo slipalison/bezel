@@ -22,6 +22,7 @@ pub mod media;
 pub mod messages;
 pub mod power;
 pub mod settings;
+pub mod standby;
 pub mod storage;
 pub mod studio;
 pub mod texts;
@@ -309,6 +310,11 @@ pub fn run() -> Result<(), tauri::Error> {
             commands::delete_collected,
             commands::use_collected,
             commands::open_link,
+            commands::standby_overview,
+            commands::set_standby,
+            commands::pick_photo,
+            commands::album_preview,
+            commands::album_add,
         ])
         .build(tauri::generate_context!())?;
     app.run(on_run_event);
@@ -1264,11 +1270,21 @@ mod tests {
         "open_link",
     ];
 
+    /// The commands of "When the computer shuts down" and the card's album
+    /// (D-2026-10-03-power-off-standby-2, -4, -6).
+    const STANDBY_COMMANDS: [&str; 5] = [
+        "standby_overview",
+        "set_standby",
+        "pick_photo",
+        "album_preview",
+        "album_add",
+    ];
+
     #[test]
     fn every_command_is_allowed_by_name() {
         let (commands, allowed) = permissions();
         assert!(commands.contains(&"allow-run-plan".to_string()));
-        for command in GIF_COMMANDS {
+        for command in GIF_COMMANDS.into_iter().chain(STANDBY_COMMANDS) {
             let permission = format!("allow-{}", command.replace('_', "-"));
             assert!(commands.contains(&permission), "{command} in build.rs");
         }
