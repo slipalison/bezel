@@ -25,6 +25,7 @@ use bezel_core::domain::geometry::Orientation;
 use bezel_core::domain::job::Job;
 use bezel_core::domain::media::MediaKind;
 use bezel_core::domain::screen::{Brightness, ScreenIdentity};
+use bezel_core::domain::standby::PlanB;
 use bezel_core::domain::storage::{
     Confirmed, FileName, Medium, RemotePath, Repeat, StartMode, StorageInfo, StorageLocation,
 };
@@ -545,15 +546,17 @@ impl<W: Wire, P: Pause> ScreenStorage for TuringRevC<W, P> {
         self.stop_playback()
     }
 
-    /// OPTIONS 0x7D with the last brightness this link sent (the vendor
-    /// default before any), its flip and sleep delay: only the start mode
-    /// changes.
-    fn set_start_mode(&mut self, mode: StartMode, _confirmed: Confirmed) -> Result<()> {
-        self.options.start_mode = match mode {
+    /// OPTIONS 0x7D written whole: the last brightness this link sent (the
+    /// vendor default before any), `plan`'s start mode, no flip and
+    /// `plan`'s sleep timer.
+    fn set_options(&mut self, plan: PlanB, _confirmed: Confirmed) -> Result<()> {
+        self.options.start_mode = match plan.start_mode {
             StartMode::Default => proto::StartMode::Default,
             StartMode::Image => proto::StartMode::Image,
             StartMode::Video => proto::StartMode::Video,
         };
+        self.options.flip = false;
+        self.options.sleep_minutes = plan.sleep_minutes;
         tracing::info!(options = ?self.options, "OPTIONS");
         self.send(&proto::set_options(self.options))
     }
@@ -1871,7 +1874,9 @@ mod tests {
     #[test]
     fn boot_rewrites_options_keeping_the_last_brightness() {
         let mut s = connected();
-        s.set_start_mode(StartMode::Video, confirmed()).unwrap();
+        let before = s.wire().sent.len();
+        s.set_options(PlanB::new(StartMode::Video, 0), confirmed())
+            .unwrap();
         // § 17.2: brightness 170 (none sent yet: the vendor default), video,
         // no flip, no sleep.
         let expected = proto::set_options(Options {
@@ -1880,14 +1885,20 @@ mod tests {
             flip: false,
             sleep_minutes: 0,
         });
-        assert_eq!(s.wire().sent.last().unwrap(), &expected.to_vec());
+        assert_eq!(since(&s, before), [expected.to_vec()], "one packet");
         s.set_brightness(Brightness::new(25).unwrap()).unwrap();
-        s.set_start_mode(StartMode::Image, confirmed()).unwrap();
+        s.set_options(PlanB::new(StartMode::Image, 0), confirmed())
+            .unwrap();
         assert_eq!(
             &s.wire().sent.last().unwrap()[..15],
             &[0x7D, 0xEF, 0x69, 0, 0, 0, 5, 0, 0, 0, 64, 1, 0, 0, 0]
         );
-        s.set_start_mode(StartMode::Default, confirmed()).unwrap();
+        // The plan B's timer is written whole, then undone.
+        s.set_options(PlanB::new(StartMode::Default, 5), confirmed())
+            .unwrap();
+        assert_eq!(&s.wire().sent.last().unwrap()[10..15], &[64, 0, 0, 0, 5]);
+        s.set_options(PlanB::new(StartMode::Default, 0), confirmed())
+            .unwrap();
         assert_eq!(&s.wire().sent.last().unwrap()[10..15], &[64, 0, 0, 0, 0]);
     }
 

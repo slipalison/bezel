@@ -235,14 +235,23 @@ impl<'a> Manager<'a> {
     }
 
     /// Sets the boot media as [`storage::set_boot_media`] does and records
-    /// it.
+    /// it. The OPTIONS are written whole from the screen's record: the boot
+    /// media's start mode and the sleep timer of a recorded `off`
+    /// (D-2026-10-03-power-off-standby-2 (4)); the recorded choice stays.
     pub fn set_boot_media(
         &mut self,
         boot: &BootMedia,
         brightness: Option<Brightness>,
         confirm: Confirm,
     ) -> Result<()> {
-        storage::set_boot_media(self.link, boot, brightness, confirm)?;
+        Confirmed::require(confirm, &Operation::Boot(boot.clone()))?;
+        let standby = self
+            .store
+            .load()?
+            .screen(&self.key)
+            .map(|r| r.standby.clone())
+            .unwrap_or_default();
+        storage::write_boot_media(self.link, boot, brightness, &standby, confirm)?;
         let key = &self.key;
         ledger::change(self.store, |edit| {
             edit.catalog.screen_mut(key).set_boot(boot);

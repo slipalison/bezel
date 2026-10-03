@@ -16,6 +16,7 @@ use bezel_core::domain::geometry::Size;
 use bezel_core::domain::job::Job;
 use bezel_core::domain::media::{MediaInfo, MediaTools, StreamSpec, TranscodeTarget};
 use bezel_core::domain::poster::PosterSpec;
+use bezel_core::domain::standby::{SleepMinutes, Standby};
 use bezel_core::domain::storage::{BootMedia, RemotePath};
 use bezel_core::ports::{ArchiveStore, MediaLocation, MediaTranscoder, VideoFrames};
 use bezel_core::{BezelError, Result};
@@ -105,9 +106,12 @@ fn sample_catalog(ids: &[ContentId]) -> Catalog {
         record.record(entry);
     }
     record.set_boot(&BootMedia::File(remote("sd/video/clip.mp4")));
+    record.standby = Standby::Video(remote("sd/video/clip.mp4"));
     let named = ScreenKey::named(ModelId("turing-8.8"), "desk");
     let entry = ArchiveEntry::pending(remote("internal/video/x.mp4"), None, 7, ids[0].clone(), 1);
-    catalog.screen_mut(&named).record(entry);
+    let desk = catalog.screen_mut(&named);
+    desk.record(entry);
+    desk.standby = Standby::Off(SleepMinutes::new(7).unwrap());
     catalog
 }
 
@@ -214,6 +218,10 @@ fn copies_are_the_exact_bytes_sent_and_survive_a_reload() {
         r#""model": "turing-8.8""#,
         r#""name": "desk""#,
         r#""boot": "sd/video/clip.mp4""#,
+        r#""choice": "video""#,
+        r#""file": "sd/video/clip.mp4""#,
+        r#""choice": "off""#,
+        r#""sleepMinutes": 7"#,
         r#""path": "sd/video/NVI.mp427034822.mp4""#,
         r#""durationNs": 10041666667"#,
         r#""sentAt": 1790000000"#,
@@ -336,6 +344,11 @@ fn a_damaged_catalog_is_an_error_naming_it_and_is_left_as_it_is() {
         )
     };
     let twice = r#"{"schema": 1, "limit": 5, "screens": [{"model": "m"}, {"model": "m"}]}"#;
+    let standby = |choice: &str| {
+        format!(
+            r#"{{"schema": 1, "limit": 5, "screens": [{{"model": "turing-8.8", "standby": {choice}}}]}}"#
+        )
+    };
     let cases: Vec<(String, &str)> = vec![
         (String::new(), "EOF"),
         (r#"{"schema": 1, "limit": "#.into(), "EOF"),
@@ -359,6 +372,18 @@ fn a_damaged_catalog_is_an_error_naming_it_and_is_left_as_it_is() {
             "\"floppy/video/a.mp4\" is not a screen path",
         ),
         (twice.into(), "screen m is listed twice"),
+        (
+            standby(r#"{"choice": "sleep"}"#),
+            "screen turing-8.8: unknown standby choice \"sleep\"",
+        ),
+        (
+            standby(r#"{"choice": "off", "sleepMinutes": 11}"#),
+            "screen turing-8.8: standby: invalid input: off needs the sleep timer",
+        ),
+        (
+            standby(r#"{"choice": "video", "file": "sd/image/a.png"}"#),
+            "not in a video folder",
+        ),
     ];
     for (text, why) in cases {
         fs::write(&path, &text).unwrap();
@@ -369,12 +394,23 @@ fn a_damaged_catalog_is_an_error_naming_it_and_is_left_as_it_is() {
         assert!(message.contains(why), "{why:?} in {message}");
         assert_eq!(fs::read_to_string(&path).unwrap(), text, "never reset");
     }
-    // The good shape of the same entry loads.
+    // The good shape of the same entry loads; a catalog written before the
+    // standby choice existed reads as keep.
     fs::write(&path, entry("sd/video/a.mp4", "stored")).unwrap();
     let catalog = store.load().unwrap();
     assert_eq!(catalog.limit, 5);
     let record = catalog.screen(&ScreenKey::new(ModelId("turing-8.8")));
     assert_eq!(record.unwrap().entries[0].state, EntryState::Stored);
+    assert_eq!(record.unwrap().standby, Standby::Keep);
+    fs::write(&path, standby(r#"{"choice": "album"}"#)).unwrap();
+    let record = store.load().unwrap().screens.into_values().next().unwrap();
+    assert_eq!(record.standby, Standby::Album);
+    // Keep is never written: the field's absence means it.
+    let mut kept = Catalog::default();
+    kept.screen_mut(&ScreenKey::new(ModelId("turing-8.8")));
+    store.save(&kept).unwrap();
+    assert!(!fs::read_to_string(&path).unwrap().contains("standby"));
+    assert_eq!(store.load().unwrap(), kept);
 
     // A store cannot live inside a file.
     let err = DiskArchive::open(&path).unwrap_err();

@@ -15,6 +15,7 @@ use super::media::{
     ConvertOptions, Converter, MediaInfo, MediaKind, Mismatch, TranscodeTarget, UploadProfile,
 };
 use super::screen::Confirm;
+use super::standby::Standby;
 use crate::BezelError;
 
 /// Where a screen stores files.
@@ -353,6 +354,9 @@ pub enum Operation {
     Overwrite(RemotePath),
     /// Changing the boot media (persistent).
     Boot(BootMedia),
+    /// Choosing what the screen does when the computer shuts down, and
+    /// writing its plan B (persistent; D-2026-10-03-power-off-standby-2).
+    Standby(Standby),
 }
 
 impl fmt::Display for Operation {
@@ -364,7 +368,23 @@ impl fmt::Display for Operation {
                 write!(f, "making {path} the boot media")
             }
             Operation::Boot(BootMedia::Default) => f.write_str("restoring the default boot screen"),
+            Operation::Standby(standby) => standby_text(f, standby),
         }
+    }
+}
+
+/// What choosing `standby` does, as the confirmation names it.
+fn standby_text(f: &mut fmt::Formatter<'_>, standby: &Standby) -> fmt::Result {
+    let when = "when the computer shuts down";
+    match standby {
+        Standby::Keep => write!(f, "leaving the screen as it is {when}"),
+        Standby::Off(minutes) => write!(
+            f,
+            "turning the screen off {when} (it sleeps after {} min without the computer)",
+            minutes.get()
+        ),
+        Standby::Video(path) => write!(f, "playing {path} {when}"),
+        Standby::Album => write!(f, "showing the card's photo album {when}"),
     }
 }
 
@@ -383,6 +403,16 @@ impl Confirmed {
             Confirm::Yes => Ok(Self { _proof: () }),
             Confirm::No => Err(BezelError::NotConfirmed(operation.to_string())),
         }
+    }
+
+    /// The proof a recorded choice carries: the user confirmed `standby`
+    /// when it was chosen (`app::standby::choose`, which records it only
+    /// after `Confirm::Yes`), and applying it at shutdown runs under that
+    /// confirmation (D-2026-10-03-power-off-standby-2 (5), -3). Only the
+    /// core's use case that applies a recorded choice makes one.
+    pub(crate) fn recorded(standby: &Standby) -> Self {
+        let _ = standby;
+        Self { _proof: () }
     }
 }
 
@@ -673,6 +703,7 @@ mod tests {
     use crate::domain::geometry::Size;
     use crate::domain::media::MediaFormat;
     use crate::domain::media::tests::{mp4, profile, still};
+    use crate::domain::standby::{PlanB, SleepMinutes};
     use crate::ports::ScreenStorage;
 
     const NATIVE: Size = Size::new(480, 1920);
@@ -724,12 +755,12 @@ mod tests {
         preflight(check, &profile("turing-8.8").unwrap(), info, stored)
     }
 
-    /// The storage port's destructive methods, as the compiler sees them:
-    /// both take the proof of a confirmation.
+    /// The storage port's destructive, persistent and disruptive methods,
+    /// as the compiler sees them: each takes the proof of a confirmation.
     type Delete =
         fn(&mut (dyn ScreenStorage + 'static), &RemotePath, Confirmed) -> crate::Result<()>;
-    type SetStartMode =
-        fn(&mut (dyn ScreenStorage + 'static), StartMode, Confirmed) -> crate::Result<()>;
+    type SetOptions = fn(&mut (dyn ScreenStorage + 'static), PlanB, Confirmed) -> crate::Result<()>;
+    type Restart = fn(&mut (dyn ScreenStorage + 'static), Confirmed) -> crate::Result<()>;
 
     #[test]
     fn destructive_operations_require_confirm_yes() {
@@ -751,6 +782,23 @@ mod tests {
                 Operation::Boot(BootMedia::Default),
                 "restoring the default boot screen",
             ),
+            (
+                Operation::Standby(Standby::Keep),
+                "leaving the screen as it is when the computer shuts down",
+            ),
+            (
+                Operation::Standby(Standby::Off(SleepMinutes::SUGGESTED)),
+                "turning the screen off when the computer shuts down \
+                 (it sleeps after 5 min without the computer)",
+            ),
+            (
+                Operation::Standby(Standby::Video(video.clone())),
+                "playing internal/video/clip.mp4 when the computer shuts down",
+            ),
+            (
+                Operation::Standby(Standby::Album),
+                "showing the card's photo album when the computer shuts down",
+            ),
         ];
         for (op, text) in &operations {
             let refused = Confirmed::require(Confirm::No, op).unwrap_err();
@@ -760,11 +808,14 @@ mod tests {
         }
 
         // Only `Confirmed::require` with `Confirm::Yes` makes a `Confirmed`
-        // (its field is private), and the port's delete and start-mode
-        // writes take one: no code path reaches them unconfirmed. These
-        // coercions stop compiling if either signature loses the proof.
+        // outside the core (its field is private; inside, only a choice the
+        // user confirmed when it was recorded makes one), and the port's
+        // delete, OPTIONS and restart take one: no code path reaches them
+        // unconfirmed. These coercions stop compiling if a signature loses
+        // the proof.
         let _: Delete = <dyn ScreenStorage>::delete;
-        let _: SetStartMode = <dyn ScreenStorage>::set_start_mode;
+        let _: SetOptions = <dyn ScreenStorage>::set_options;
+        let _: Restart = <dyn ScreenStorage>::restart;
         // That the use cases refuse before any byte reaches the screen
         // (overwrite included) runs through the device fake:
         // tests/storage.rs, `replacing_deleting_and_the_boot_slot_need_confirmation`.

@@ -8,7 +8,9 @@
 //! ([`ScreenKey`]), medium, folder and name. A card entry also keeps the
 //! card's capacity, the only card trait the protocol shows, so a card of
 //! another capacity shows the other card's entries as restorable
-//! ([`Overview::other_card`]).
+//! ([`Overview::other_card`]). A screen's record also keeps the boot media
+//! Bezel set and what the screen does when the computer shuts down
+//! ([`ScreenRecord::standby`]).
 //!
 //! Moving, renaming and restoring are re-uploads of a copy. This module plans
 //! them ([`plan_move`], [`plan_copy`], [`plan_rename`], [`plan_restore`]); the
@@ -24,6 +26,7 @@ use super::cleanup::{Protected, artifact_base};
 use super::device::ModelId;
 use super::geometry::Size;
 use super::media::{MediaInfo, MediaKind};
+use super::standby::{PlanB, Standby};
 use super::storage::{
     BootMedia, FileEntry, FileName, Medium, NameError, Refusal, RemotePath, StorageLocation,
     check_size,
@@ -298,6 +301,9 @@ pub struct ScreenRecord {
     /// The boot media Bezel last set, when it is a stored file (`None`: the
     /// default start screen, or never set through Bezel).
     pub boot: Option<RemotePath>,
+    /// What the screen does when the computer shuts down
+    /// (D-2026-10-03-power-off-standby-2): `keep` until the user chooses.
+    pub standby: Standby,
 }
 
 impl ScreenRecord {
@@ -341,6 +347,21 @@ impl ScreenRecord {
             BootMedia::File(path) => Some(path.clone()),
             BootMedia::Default => None,
         };
+    }
+
+    /// The boot media Bezel last set ([`BootMedia::Default`] when none).
+    pub fn boot_media(&self) -> BootMedia {
+        self.boot
+            .clone()
+            .map_or(BootMedia::Default, BootMedia::File)
+    }
+
+    /// The plan B the recorded choice writes next to the recorded boot
+    /// media ([`Standby::plan_b`]): what the screen keeps after the choice
+    /// was last written (setting the boot media afterwards writes the boot
+    /// media's start mode instead, [`PlanB::with_boot`]).
+    pub fn plan_b(&self) -> PlanB {
+        self.standby.plan_b(self.boot_media().start_mode())
     }
 
     /// Marks every entry of the media `listing` shows as stored or missing
@@ -1380,8 +1401,29 @@ mod tests {
         assert!(record.forget(&path("internal/image/a.png"), None).is_none());
         record.set_boot(&BootMedia::File(path("sd/video/clip.mp4")));
         assert_eq!(record.boot, Some(path("sd/video/clip.mp4")));
+        assert_eq!(
+            record.boot_media(),
+            BootMedia::File(path("sd/video/clip.mp4"))
+        );
         record.set_boot(&BootMedia::Default);
         assert_eq!(record.boot, None);
+        assert_eq!(record.boot_media(), BootMedia::Default);
+    }
+
+    #[test]
+    fn a_record_keeps_its_standby_choice_and_its_plan_b() {
+        use crate::domain::standby::SleepMinutes;
+        use crate::domain::storage::StartMode;
+
+        let mut record = ScreenRecord::default();
+        assert_eq!(record.standby, Standby::Keep, "keep until chosen");
+        assert_eq!(record.plan_b(), PlanB::new(StartMode::Default, 0));
+        let three = SleepMinutes::new(3).expect("minutes");
+        record.standby = Standby::Off(three);
+        record.set_boot(&BootMedia::File(path("internal/image/logo.png")));
+        assert_eq!(record.plan_b(), PlanB::new(StartMode::Image, 3));
+        record.standby = Standby::Album;
+        assert_eq!(record.plan_b(), PlanB::new(StartMode::Image, 0));
     }
 
     fn view<'a>(
