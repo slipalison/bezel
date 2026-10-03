@@ -15,7 +15,7 @@ use super::media::{
     ConvertOptions, Converter, MediaInfo, MediaKind, Mismatch, TranscodeTarget, UploadProfile,
 };
 use super::screen::Confirm;
-use super::standby::Standby;
+use super::standby::{RecordedChoice, Standby};
 use crate::BezelError;
 
 /// Where a screen stores files.
@@ -405,13 +405,14 @@ impl Confirmed {
         }
     }
 
-    /// The proof a recorded choice carries: the user confirmed `standby`
-    /// when it was chosen (`app::standby::choose`, which records it only
-    /// after `Confirm::Yes`), and applying it at shutdown runs under that
+    /// The proof a recorded choice carries: the user confirmed it when it
+    /// was chosen (`app::standby::choose`, which records it only after
+    /// `Confirm::Yes`), and applying it at shutdown runs under that
     /// confirmation (D-2026-10-03-power-off-standby-2 (5), -3). Only the
-    /// core's use case that applies a recorded choice makes one.
-    pub(crate) fn recorded(standby: &Standby) -> Self {
-        let _ = standby;
+    /// core's use case that applies a recorded choice makes one, and only
+    /// for a [`RecordedChoice`], which only the core reads from the store.
+    pub(crate) fn recorded(choice: &RecordedChoice) -> Self {
+        let _ = choice;
         Self { _proof: () }
     }
 }

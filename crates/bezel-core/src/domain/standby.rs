@@ -12,6 +12,7 @@
 
 use std::fmt;
 
+use super::archive::ScreenRecord;
 use super::device::{DeviceModel, Family};
 use super::frame::{Frame, RGBA_BYTES};
 use super::framing::{ResolvedFraming, VideoFit, frame_picture};
@@ -183,6 +184,36 @@ fn video_path(text: &str) -> Result<RemotePath> {
         )));
     }
     Ok(path)
+}
+
+/// The choice a screen's catalog record holds, as the shutdown applies it
+/// (`app::standby::at_shutdown`). Only the core makes one, from the record
+/// it reads from the store (`app::standby::recorded_choice`): a record holds
+/// a choice only once the user confirmed it, so its actions run under that
+/// confirmation (D-2026-10-03-power-off-standby-2 (5)), and no adapter can
+/// make one up for a choice nobody confirmed:
+///
+/// ```compile_fail
+/// use bezel_core::domain::standby::{RecordedChoice, Standby};
+/// let forged = RecordedChoice { standby: Standby::Album };
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordedChoice {
+    standby: Standby,
+}
+
+impl RecordedChoice {
+    /// The choice `record` holds (`keep` without a record).
+    pub(crate) fn of(record: Option<&ScreenRecord>) -> Self {
+        Self {
+            standby: record.map(|r| r.standby.clone()).unwrap_or_default(),
+        }
+    }
+
+    /// The choice.
+    pub fn standby(&self) -> &Standby {
+        &self.standby
+    }
 }
 
 /// What the screen does on its own, written persistently with every choice

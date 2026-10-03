@@ -5,17 +5,19 @@
 //!
 //! Rev C screens only; any other family is `Unsupported` before anything is
 //! sent. Changing the choice needs the screen and `Confirm::Yes`: with
-//! `Confirm::No` nothing is sent, loaded or saved. Applying it sends only
-//! what the recorded choice says (TURNOFF, PLAY_VIDEO in a loop, or OPTIONS
-//! and RESTART), and TURNOFF instead when the choice cannot be honoured, so
-//! that the screen never stays frozen on the last frame.
+//! `Confirm::No` nothing is sent, loaded or saved. Applying it takes the
+//! choice as the catalog records it ([`recorded_choice`], the only way to a
+//! [`RecordedChoice`]) and sends only what it says (TURNOFF, PLAY_VIDEO in
+//! a loop, or OPTIONS and RESTART), and TURNOFF instead when the choice
+//! cannot be honoured, so that the screen never stays frozen on the last
+//! frame.
 
 use crate::app::storage::{Presence, ensure_stored, presence, storage_of};
 use crate::domain::archive::ScreenKey;
 use crate::domain::media::MediaKind;
 use crate::domain::screen::Confirm;
 use crate::domain::standby::{
-    Offer, PlanB, Standby, StandbyOption, Unavailable, supports, unavailable,
+    Offer, PlanB, RecordedChoice, Standby, StandbyOption, Unavailable, supports, unavailable,
 };
 use crate::domain::storage::{
     BootMedia, Confirmed, Medium, Operation, Refusal, RemotePath, Repeat, StartMode,
@@ -180,9 +182,18 @@ fn honoured(storage: &mut dyn ScreenStorage, standby: &Standby) -> Result<()> {
     }
 }
 
-/// Applies `standby`, the choice recorded for the screen behind `link`, as
-/// the computer shuts down (D-2026-10-03-power-off-standby-3), sending only
-/// what the choice says and waiting for nothing the screen does afterwards:
+/// The choice the catalog of `store` records for `key` (`keep` without a
+/// record), as [`at_shutdown`] applies it: the only way to a
+/// [`RecordedChoice`]. Only reads the store.
+pub fn recorded_choice(store: &mut dyn ArchiveStore, key: &ScreenKey) -> Result<RecordedChoice> {
+    let catalog = store.load()?;
+    Ok(RecordedChoice::of(catalog.screen(key)))
+}
+
+/// Applies `choice`, the choice recorded for the screen behind `link`
+/// ([`recorded_choice`]), as the computer shuts down
+/// (D-2026-10-03-power-off-standby-3), sending only what the choice says
+/// and waiting for nothing the screen does afterwards:
 /// - `keep`: nothing;
 /// - `off`: [`ScreenLink::turn_off_now`];
 /// - `video`: a size query, then its file loops ([`ScreenStorage::play_video`]
@@ -194,9 +205,11 @@ fn honoured(storage: &mut dyn ScreenStorage, standby: &Standby) -> Result<()> {
 ///   instead ([`Applied::TurnedOffInstead`]).
 ///
 /// The OPTIONS and RESTART run under the confirmation the user gave when
-/// the choice was recorded (D-2026-10-03-power-off-standby-2 (5)). A
-/// family without the choice: `Unsupported`, nothing sent.
-pub fn at_shutdown(link: &mut dyn ScreenLink, standby: &Standby) -> Result<Applied> {
+/// the choice was recorded (D-2026-10-03-power-off-standby-2 (5)), which
+/// only a [`RecordedChoice`] carries. A family without the choice:
+/// `Unsupported`, nothing sent.
+pub fn at_shutdown(link: &mut dyn ScreenLink, choice: &RecordedChoice) -> Result<Applied> {
+    let standby = choice.standby();
     if *standby == Standby::Keep {
         return Ok(Applied::Nothing);
     }
@@ -208,7 +221,7 @@ pub fn at_shutdown(link: &mut dyn ScreenLink, standby: &Standby) -> Result<Appli
             Ok(Applied::TurnedOff)
         }
         Standby::Video(path) => loop_video(link, path),
-        Standby::Album => restart_into_album(link, standby),
+        Standby::Album => restart_into_album(link, choice),
     }
 }
 
@@ -225,14 +238,14 @@ fn loop_video(link: &mut dyn ScreenLink, path: &RemotePath) -> Result<Applied> {
 }
 
 /// `album` at shutdown: start mode 1 and a restart, with a card.
-fn restart_into_album(link: &mut dyn ScreenLink, standby: &Standby) -> Result<Applied> {
+fn restart_into_album(link: &mut dyn ScreenLink, choice: &RecordedChoice) -> Result<Applied> {
     let storage = storage_of(link)?;
     if storage.info()?.card.is_none() {
         return turned_off_instead(link, Unavailable::NoCard);
     }
-    let plan = standby.plan_b(StartMode::Default);
-    storage.set_options(plan, Confirmed::recorded(standby))?;
-    storage.restart(Confirmed::recorded(standby))?;
+    let plan = choice.standby().plan_b(StartMode::Default);
+    storage.set_options(plan, Confirmed::recorded(choice))?;
+    storage.restart(Confirmed::recorded(choice))?;
     Ok(Applied::Album)
 }
 

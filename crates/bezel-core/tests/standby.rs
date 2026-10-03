@@ -12,7 +12,9 @@ use bezel_core::domain::archive::{Catalog, ContentId, ScreenKey};
 use bezel_core::domain::device::{ModelId, Transport, UsbId};
 use bezel_core::domain::discovery::{DeviceAddress, Endpoint};
 use bezel_core::domain::screen::Confirm;
-use bezel_core::domain::standby::{Choice, PlanB, SleepMinutes, Standby, Unavailable};
+use bezel_core::domain::standby::{
+    Choice, PlanB, RecordedChoice, SleepMinutes, Standby, Unavailable,
+};
 use bezel_core::domain::storage::{BootMedia, Refusal, RemotePath, Repeat, StartMode};
 use bezel_core::ports::{ArchiveStore, ScreenLink};
 use bezel_core::{BezelError, Result};
@@ -136,6 +138,20 @@ fn stocked() -> FakeStorage {
         .with_file(remote("sd/image/beach.png"), vec![3; 30])
 }
 
+/// The choice the catalog of `store` records for [`key`], read as the
+/// shutdown reads it.
+fn recorded_in(store: &mut Counted) -> RecordedChoice {
+    standby::recorded_choice(store, &key()).expect("reads the catalog")
+}
+
+/// `standby` as a catalog records it for [`key`], read back as the
+/// shutdown reads it.
+fn on_record(standby: Standby) -> RecordedChoice {
+    let mut catalog = Catalog::default();
+    catalog.screen_mut(&key()).standby = standby;
+    recorded_in(&mut Counted::with_catalog(catalog))
+}
+
 fn choose(
     link: &mut dyn ScreenLink,
     store: &mut Counted,
@@ -177,14 +193,14 @@ fn without_yes_or_on_another_family_nothing_is_sent_nor_recorded() {
             assert!(unsupported(&refused), "{refused:?}");
             let why = refused.map(|_| ()).unwrap_err().to_string();
             assert!(why.contains("rev C screens only"), "{why}");
-            let refused = standby::at_shutdown(other.as_mut(), &choice);
+            let refused = standby::at_shutdown(other.as_mut(), &on_record(choice.clone()));
             if choice == Standby::Keep {
                 assert_eq!(refused, Ok(Applied::Nothing));
             } else {
                 assert!(unsupported(&refused), "{refused:?}");
             }
         }
-        let refused = standby::at_shutdown(other.as_mut(), &Standby::Off(minutes(1)));
+        let refused = standby::at_shutdown(other.as_mut(), &on_record(Standby::Off(minutes(1))));
         assert!(unsupported(&refused), "{refused:?}");
         let shown = standby::show(other.as_mut(), &mut store, &key()).expect("shows");
         let reasons = shown.options.map(|o| o.unavailable);
@@ -278,8 +294,9 @@ fn keep_undoes_the_plan_b_and_keep_to_keep_sends_nothing() {
     choose(link.as_mut(), &mut store, Standby::Keep, Confirm::Yes).expect("keep");
     assert_eq!(calls(&connector).len(), 2, "keep to keep: nothing");
     assert_eq!(store.saves, saves);
+    let recorded = recorded_in(&mut store);
     assert_eq!(
-        standby::at_shutdown(link.as_mut(), &store.recorded()),
+        standby::at_shutdown(link.as_mut(), &recorded),
         Ok(Applied::Nothing)
     );
     assert_eq!(calls(&connector).len(), 2, "keep at shutdown: nothing");
@@ -397,8 +414,8 @@ fn the_shutdown_actions_follow_the_recorded_choice() {
             choose(link.as_mut(), &mut store, choice.clone(), Confirm::Yes).expect("chosen");
         }
         // The studio reads the choice back from the catalog at shutdown.
-        let recorded = store.recorded();
-        assert_eq!(recorded, choice);
+        let recorded = recorded_in(&mut store);
+        assert_eq!(recorded.standby(), &choice);
         let before = calls(&connector).len();
         assert_eq!(standby::at_shutdown(link.as_mut(), &recorded), Ok(applied));
         assert_eq!(since(&connector, before), sent, "{choice:?}: exactly this");
@@ -425,7 +442,7 @@ fn a_choice_that_cannot_be_honoured_turns_the_screen_off_instead() {
         Confirm::Yes,
     )
     .expect("video");
-    let applied = standby::at_shutdown(bare_link.as_mut(), &store.recorded());
+    let applied = standby::at_shutdown(bare_link.as_mut(), &recorded_in(&mut store));
     assert_eq!(applied, Ok(Applied::TurnedOffInstead(Unavailable::NoVideo)));
     assert_eq!(
         calls(&bare),
@@ -434,7 +451,7 @@ fn a_choice_that_cannot_be_honoured_turns_the_screen_off_instead() {
 
     choose(link.as_mut(), &mut store, Standby::Album, Confirm::Yes).expect("album");
     let before = calls(&bare).len();
-    let applied = standby::at_shutdown(bare_link.as_mut(), &store.recorded());
+    let applied = standby::at_shutdown(bare_link.as_mut(), &recorded_in(&mut store));
     assert_eq!(applied, Ok(Applied::TurnedOffInstead(Unavailable::NoCard)));
     assert_eq!(
         since(&bare, before),
@@ -444,7 +461,7 @@ fn a_choice_that_cannot_be_honoured_turns_the_screen_off_instead() {
     // A video choice that points at an image is not played either.
     let image = remote("sd/image/beach.png");
     let before = calls(&stocked_screen).len();
-    let applied = standby::at_shutdown(link.as_mut(), &Standby::Video(image));
+    let applied = standby::at_shutdown(link.as_mut(), &on_record(Standby::Video(image)));
     assert_eq!(applied, Ok(Applied::TurnedOffInstead(Unavailable::NoVideo)));
     assert_eq!(since(&stocked_screen, before), [StorageCall::TurnOffNow]);
     assert_eq!(bare.log().storage.options, None, "no plan B at shutdown");

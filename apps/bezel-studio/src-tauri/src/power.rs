@@ -34,7 +34,7 @@ use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 use bezel_core::app::discover_screens;
-use bezel_core::app::standby::at_shutdown;
+use bezel_core::app::standby::{at_shutdown, recorded_choice};
 use bezel_core::domain::archive::{Catalog, ScreenKey};
 use bezel_core::domain::device::DeviceModel;
 use bezel_core::domain::discovery::{Screen, ScreenState};
@@ -251,18 +251,6 @@ fn choice_for(catalog: &Catalog, model: &DeviceModel) -> Standby {
         .unwrap_or_default()
 }
 
-/// Applies the choice `catalog` records for the screen behind `link`;
-/// `keep` sends nothing. A failure is said.
-fn apply(link: &mut dyn ScreenLink, catalog: &Catalog) {
-    let standby = choice_for(catalog, link.identity().model);
-    if standby == Standby::Keep {
-        return;
-    }
-    if at_shutdown(link, &standby).is_err() {
-        diag::report(DiagCode::ShutdownChoiceFailed);
-    }
-}
-
 /// Whether the shutdown opens `screen` to apply its choice: an awake rev C
 /// screen (one asleep is never woken) of a known model whose choice is not
 /// `keep`.
@@ -312,7 +300,7 @@ impl Backend {
         };
         let had_live = live.is_some();
         if let Some(mut link) = live.filter(|_| Instant::now() < deadline) {
-            apply(link.as_mut(), &catalog);
+            self.apply(link.as_mut());
         }
         let screens = discover_screens(self.bus.as_ref()).unwrap_or_else(|_| {
             diag::report(DiagCode::ShutdownScreensNotListed);
@@ -330,9 +318,28 @@ impl Backend {
                 continue;
             }
             match self.connector.connect(&screen) {
-                Ok(mut link) => apply(link.as_mut(), &catalog),
+                Ok(mut link) => self.apply(link.as_mut()),
                 Err(_) => diag::report(DiagCode::ShutdownChoiceFailed),
             }
+        }
+    }
+
+    /// Applies the choice the catalog records for the screen behind `link`
+    /// (keyed by its model, [`ScreenKey::new`]), read again by the core
+    /// ([`recorded_choice`], the only way to the choice [`at_shutdown`]
+    /// takes); `keep` sends nothing. A failure is said.
+    fn apply(&self, link: &mut dyn ScreenLink) {
+        let key = ScreenKey::new(link.identity().model.id);
+        let read = recorded_choice(&mut **self.storage.archive(), &key);
+        let Ok(choice) = read else {
+            diag::report(DiagCode::ShutdownCatalogNotRead);
+            return;
+        };
+        if *choice.standby() == Standby::Keep {
+            return;
+        }
+        if at_shutdown(link, &choice).is_err() {
+            diag::report(DiagCode::ShutdownChoiceFailed);
         }
     }
 
