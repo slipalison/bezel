@@ -677,3 +677,16 @@ test('the demo collection: rename, the themes using an item, use and delete', as
   await demo.openGuide('gifs-and-stickers', 'pt-BR');
   await createDemoBackend('gifs').openLink('klipyPartnerPanel');
 });
+
+test('the standby scenarios: an 8.8" without a card, one set to turn off, one with a card album', async () => {
+  const noCard = createDemoBackend('noCard');
+  const overview = await noCard.storageOverview('/dev/ttyACM1');
+  assert.equal(overview.card, null, 'no card listed');
+  assert.deepEqual(overview.folders.map((f) => `${f.medium}/${f.kind}`), ['internal/image', 'internal/video']);
+  const album = await createDemoBackend('album').storageOverview('/dev/ttyACM1');
+  const images = album.folders.find((f) => f.medium === 'sd' && f.kind === 'image').files.map((f) => f.name);
+  assert.deepEqual(images.sort(), ['img_0042.jpg', 'praia.png']);
+  assert.equal((await createDemoBackend('standbyOff').standbyOverview('/dev/ttyACM1')).choice, 'off');
+  // What the standby demo reads and adds of the storage stays inside the backend.
+  assert.equal(createDemoBackend('turing88').standbyStorage, undefined);
+});

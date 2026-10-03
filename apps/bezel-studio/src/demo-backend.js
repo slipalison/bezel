@@ -4,6 +4,7 @@ import { DEMO_BACK_FROM_DESKTOP, DEMO_LIBRARY, DEMO_LOCAL_FILES, DEMO_ORIGINALS,
 import { demoFindings, demoPlanAcross, demoPlanRename, demoPlanRestore, demoRank, demoSameFile } from './demo-manager.js';
 import { DEMO_THEME } from './demo-theme.js';
 import { createDemoGifs } from './demo-gifs.js';
+import { createDemoStandby } from './demo-standby.js';
 import { DEMO_GIF_FRAME_MS, DEMO_VIDEO_LOOP_MS, renderApprox } from './demo-render.js';
 import { isHorizontal } from './editor/geometry.js';
 import { IMAGE_EXTENSIONS as PICTURES, droppable, extensionOf, fileNameOf } from './editor/background.js';
@@ -1009,6 +1010,20 @@ function createDemoStorage(chosen, { delay, now, live, isLive, theme, themes, sc
     videoOfTheme,
     /** Whether ffmpeg is there (or was located): it decodes the preview's video. */
     toolsReady: () => tools.ready,
+    /**
+     * What "When the computer shuts down" reads and adds (`demo-standby.js`):
+     * the files, whether a card is in, the boot media, and a photo sent to
+     * the card album, cataloged with its local copy like every upload.
+     */
+    standbyStorage: {
+      files: () => new Map(files),
+      card: () => card,
+      boot: () => state.boot,
+      storePhoto: (path, size, source) => {
+        files.set(path, size);
+        record({ path, card: cardNow(), size, content: demoContent(source, size), localCopy: true, sentAt: nowSec(), source, resolution: { ...NATIVE }, state: 'stored' });
+      },
+    },
     /** What the simulated screen plays, shows at power-up and starts with, and the catalog. */
     storageState: () => ({ ...state, files: new Map(files), catalog: catalog.entries.map((e) => ({ ...e })), limit: catalog.limit }),
   };
@@ -1018,10 +1033,11 @@ function createDemoStorage(chosen, { delay, now, live, isLive, theme, themes, sc
  * @param {string} scenario key of SCENARIOS
  * @param {{now?: () => number, delay?: (ms: number) => Promise<void>, wait?: (fn: () => void, ms: number) => unknown, cancel?: (timer: unknown) => void}} [clock]
  *   seconds now, a pause, and the timer the preview's video decoder idles out with
- * @param {{onWindow?: (state: 'open'|'hidden'|'closed'|'quit') => void, onSensorsShown?: (keys: string[]) => void, onDecoder?: (state: 'running'|'stopped') => void, onGuide?: (page: string, language: string) => void, languages?: readonly string[], hold?: boolean}} [hooks]
+ * @param {{onWindow?: (state: 'open'|'hidden'|'closed'|'quit') => void, onSensorsShown?: (keys: string[]) => void, onDecoder?: (state: 'running'|'stopped') => void, onGuide?: (page: string, language: string) => void, onStandby?: (writes: object[]) => void, languages?: readonly string[], hold?: boolean}} [hooks]
  *   what the window does, the sensors the list shows, the preview's video
- *   decoder, the guide pages opened, the system's languages, and whether
- *   job phases wait in the middle until `letGo` (tests)
+ *   decoder, the guide pages opened, every plan B written to a screen, the
+ *   system's languages, and whether job phases wait in the middle until
+ *   `letGo` (tests)
  */
 export function createDemoBackend(scenario, clock = {}, hooks = {}) {
   const now = clock.now ?? (() => Date.now() / 1000);
@@ -1096,7 +1112,17 @@ export function createDemoBackend(scenario, clock = {}, hooks = {}) {
     videoInfo: (ref) => videoFiles.get(ref) ?? null,
     autoOf,
   });
-  const { videoOfTheme, toolsReady, ...storageApi } = storage;
+  const { videoOfTheme, toolsReady, standbyStorage, ...storageApi } = storage;
+  // "When the computer shuts down": the photo is framed in the shape the
+  // screen stands in, the orientation last used with it, else its model's.
+  const standby = createDemoStandby({
+    chosen,
+    screens: () => devices.screens,
+    storage: standbyStorage,
+    orientationOf: (key) => demoOrientation(modelOf(key), remembered.get(key)),
+    denied: demoDenied,
+    onWrite: (writes) => hooks.onStandby?.(writes),
+  });
   const taken = () => new Set([...images, ...posters.keys(), ...videos.keys()]);
   const decoder = createDemoDecoder({ wait: clock.wait, cancel: clock.cancel, onState: (state) => hooks.onDecoder?.(state) });
 
@@ -1210,6 +1236,7 @@ export function createDemoBackend(scenario, clock = {}, hooks = {}) {
   return {
     ...storageApi,
     ...gifs,
+    ...standby,
     listDevices: () => (chosen.error ? Promise.reject(new Error(chosen.error)) : Promise.resolve(structuredClone(devices))),
     leaveDesktopMode: (key, confirmed) => {
       const at = devices.desktopMode.findIndex((p) => p.key === key);
