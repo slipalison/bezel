@@ -421,8 +421,10 @@ impl Backend {
 
     /// Switches the panel in desktop mode at `key` back to USB monitor mode
     /// (D-2026-09-30-release-polish-8, not validated on hardware). Without
-    /// `Confirm::Yes` nothing is sent.
+    /// `Confirm::Yes` nothing is sent; in the final state of a shutdown
+    /// neither (`busy`, D-2026-10-03-power-off-standby-3).
     pub fn leave_desktop_mode(&self, key: &str, confirm: Confirm) -> UiResult<MonitorModeDto> {
+        self.storage.refuse_while_shutting_down()?;
         let switched =
             leave_desktop_mode(self.bus.as_ref(), self.hid.as_ref(), Some(key), confirm)?;
         Ok(MonitorModeDto::from(&switched))
@@ -1314,6 +1316,16 @@ mod tests {
             .backend
             .leave_desktop_mode("hid:/dev/hidraw9", Confirm::Yes);
         assert_eq!(gone.unwrap_err().code(), "screenNotFound");
+
+        // Review W9 (iteration 1), D-2026-10-03-power-off-standby-3: in the
+        // final state of a shutdown no panel is switched either (`busy`).
+        let calls = hid.calls().len();
+        f.backend.enter_final_state();
+        let busy = f.backend.leave_desktop_mode(&key, Confirm::Yes);
+        assert_eq!(busy.unwrap_err().code(), "busy");
+        assert_eq!(hid.calls().len(), calls, "nothing sent in the final state");
+        f.backend.leave_final_state();
+        f.backend.leave_desktop_mode(&key, Confirm::Yes).unwrap();
     }
 
     /// The guide's pages open at their fixed addresses, pages of this
