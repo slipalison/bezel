@@ -620,6 +620,33 @@ fn a_hung_screen_holds_no_command_on_the_catalog() {
     assert_eq!(read, Ok(true), "the catalog waited for the hung screen");
 }
 
+/// Review W2 of iteration 3: what the studio says of each screen's action
+/// at shutdown is what happened. An album the screen restarted into whose
+/// record could not be saved is said with its own fixed code, never as a
+/// failed choice; a choice applied says nothing; a failure is a failure.
+#[test]
+fn an_album_not_recorded_is_not_said_as_a_failed_choice() {
+    let full = BezelError::Transport("no space left on the disk".into());
+    let video = RemotePath::parse("sd/video/loop.mp4").unwrap();
+    for (applied, said) in [
+        (
+            Ok(Applied::AlbumNotRecorded(full.clone())),
+            Some(DiagCode::ShutdownAlbumNotRecorded),
+        ),
+        (Ok(Applied::Album), None),
+        (Ok(Applied::Nothing), None),
+        (Ok(Applied::TurnedOff), None),
+        (Ok(Applied::Video(video)), None),
+        (Err(full), Some(DiagCode::ShutdownChoiceFailed)),
+    ] {
+        assert_eq!(said_of(&applied), said, "{applied:?}");
+    }
+    assert_ne!(
+        DiagCode::ShutdownAlbumNotRecorded.text(),
+        DiagCode::ShutdownChoiceFailed.text()
+    );
+}
+
 /// D-2026-10-03-power-off-standby-3 (1): the final state, entered where
 /// every link is opened or lent: once in it, nothing reaches a screen.
 /// Neither a refresh nor a reconnection long due (the live screen's link

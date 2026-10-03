@@ -35,7 +35,7 @@ use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 use bezel_core::app::discover_screens;
-use bezel_core::app::standby::at_shutdown;
+use bezel_core::app::standby::{Applied, at_shutdown};
 use bezel_core::domain::archive::{Catalog, ScreenKey};
 use bezel_core::domain::device::DeviceModel;
 use bezel_core::domain::discovery::{Screen, ScreenState};
@@ -248,6 +248,18 @@ fn say(code: Option<DiagCode>) {
     }
 }
 
+/// What the studio says of the action of a shutdown on one screen
+/// (`None`: nothing went wrong): a failure, or an album the screen restarted
+/// into whose record was not updated (review W2 of iteration 3), which is
+/// not a failed choice.
+fn said_of(applied: &bezel_core::Result<Applied>) -> Option<DiagCode> {
+    match applied {
+        Ok(Applied::AlbumNotRecorded(_)) => Some(DiagCode::ShutdownAlbumNotRecorded),
+        Ok(_) => None,
+        Err(_) => Some(DiagCode::ShutdownChoiceFailed),
+    }
+}
+
 /// The choice recorded in `catalog` for a screen of `model` (the studio
 /// knows its screens by model: [`ScreenKey::new`]); `keep` without one.
 fn choice_for(catalog: &Catalog, model: &DeviceModel) -> Standby {
@@ -333,14 +345,14 @@ impl Backend {
     /// Applies the choice the catalog records for the screen behind `link`
     /// (keyed by its model, [`ScreenKey::new`]), which the core reads again
     /// there ([`at_shutdown`] takes no choice from the studio); `keep` sends
-    /// nothing. A failure is said. The catalog is locked only while it is
-    /// read or saved, so a screen that hangs holds no other command
-    /// ([`crate::storage::ArchivePerCall`]).
+    /// nothing. What went wrong is said ([`said_of`]). The catalog is locked
+    /// only while it is read or saved, so a screen that hangs holds no other
+    /// command ([`crate::storage::ArchivePerCall`]).
     fn apply(&self, link: &mut dyn ScreenLink) {
         let key = ScreenKey::new(link.identity().model.id);
         let applied = at_shutdown(link, &mut self.storage.archive_per_call(), &key);
-        if applied.is_err() {
-            diag::report(DiagCode::ShutdownChoiceFailed);
+        if let Some(code) = said_of(&applied) {
+            diag::report(code);
         }
     }
 

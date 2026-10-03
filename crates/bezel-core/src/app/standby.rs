@@ -57,6 +57,10 @@ pub enum Applied {
     /// last plan B, when one was chosen) and the screen restarts into the
     /// photos of its card; the record says that plan B was stored last.
     Album,
+    /// `album` as [`Applied::Album`], the screen restarting into its photos,
+    /// but its record could not be updated (the error says why): it still
+    /// says the plan B stored before the restart.
+    AlbumNotRecorded(BezelError),
     /// The choice could not be honoured (the video is gone, no card): the
     /// screen was turned off instead of staying frozen.
     TurnedOffInstead(Unavailable),
@@ -240,8 +244,9 @@ fn recorded_choice(store: &mut dyn ArchiveStore, key: &ScreenKey) -> Result<Reco
 ///
 /// The store is only read, but for `album` when the record says another
 /// plan B was stored last (a boot media set after the choice): the album's
-/// is recorded then, after the restart ([`ScreenRecord::stored`]), so a
-/// catalog that cannot be saved fails the call though the screen restarts.
+/// is recorded then, after the restart ([`ScreenRecord::stored`]). The
+/// screen restarts all the same, so a catalog that cannot be read again or
+/// saved then is [`Applied::AlbumNotRecorded`], not an error.
 /// A family without the choice: `Unsupported`, nothing sent.
 pub fn at_shutdown(
     link: &mut dyn ScreenLink,
@@ -279,7 +284,9 @@ fn loop_video(link: &mut dyn ScreenLink, path: &RemotePath) -> Result<Applied> {
 
 /// `album` at shutdown: start mode 1 at the level the user stored with the
 /// plan B (review W4: `--brightness` holds after the restart too), and a
-/// restart, with a card; then the record says that plan B was stored last.
+/// restart, with a card; then the record says that plan B was stored last,
+/// or the answer says it could not (review W2 of iteration 3: the screen
+/// restarted all the same).
 fn restart_into_album(
     link: &mut dyn ScreenLink,
     choice: &RecordedChoice,
@@ -297,8 +304,10 @@ fn restart_into_album(
     storage.set_options(plan, Confirmed::recorded(choice))?;
     storage.restart(Confirmed::recorded(choice))?;
     let brightness = choice.brightness();
-    record_stored(store, key, StoredPlanB { plan, brightness })?;
-    Ok(Applied::Album)
+    match record_stored(store, key, StoredPlanB { plan, brightness }) {
+        Ok(()) => Ok(Applied::Album),
+        Err(error) => Ok(Applied::AlbumNotRecorded(error)),
+    }
 }
 
 /// Records `stored` as the plan B last stored on the screen of `key`

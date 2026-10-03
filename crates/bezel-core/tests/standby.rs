@@ -77,12 +77,14 @@ fn since(connector: &FakeConnector, from: usize) -> Vec<StorageCall> {
     calls(connector)[from..].to_vec()
 }
 
-/// The catalog in memory, counting loads and saves.
+/// The catalog in memory, counting loads and saves; with `full`, every
+/// save fails (a disk that is full) and the catalog stays as it was.
 #[derive(Default)]
 struct Counted {
     inner: MemoryArchive,
     loads: usize,
     saves: usize,
+    full: bool,
 }
 
 impl Counted {
@@ -111,6 +113,9 @@ impl ArchiveStore for Counted {
 
     fn save(&mut self, catalog: &Catalog) -> Result<()> {
         self.saves += 1;
+        if self.full {
+            return Err(BezelError::Transport("no space left on the disk".into()));
+        }
         self.inner.save(catalog)
     }
 
@@ -503,6 +508,59 @@ fn the_album_at_shutdown_records_the_plan_b_it_stores() {
     // The record says it now: the next shutdown saves nothing.
     at_shutdown_on(&mut store);
     assert_eq!(store.saves, saves + 1);
+}
+
+/// Review W2 of iteration 3: the album's plan B is recorded after the
+/// screen restarts into the album, so a catalog that cannot be saved then
+/// does not make the action a failure: the screen does restart into its
+/// album, and the answer says that the record still says the plan B
+/// stored before ([`Applied::AlbumNotRecorded`], with why).
+#[test]
+fn the_album_at_shutdown_restarts_though_its_record_is_not_saved() {
+    let album = PlanB::new(StartMode::Image, 0);
+    let connector = FakeConnector::with_storage(stocked());
+    let mut link = open(&connector);
+    let mut store = Counted::default();
+    choose(link.as_mut(), &mut store, Standby::Album, Confirm::Yes).expect("album");
+    Manager::new(link.as_mut(), &mut store)
+        .named("desk")
+        .set_boot_media(
+            &BootMedia::File(remote("internal/video/intro.mp4")),
+            None,
+            Confirm::Yes,
+        )
+        .expect("boot media");
+    let before = store.inner.saved().cloned();
+
+    store.full = true;
+    let saves = store.saves;
+    let opened = FakeConnector::with_storage(stocked());
+    let applied = at_shutdown(open(&opened).as_mut(), &mut store);
+    let full = BezelError::Transport("no space left on the disk".into());
+    assert_eq!(applied, Ok(Applied::AlbumNotRecorded(full)));
+    assert_eq!(
+        calls(&opened),
+        [
+            StorageCall::Info,
+            StorageCall::Options(album),
+            StorageCall::Restart
+        ],
+        "the screen restarts into the album all the same"
+    );
+    assert_eq!(store.saves, saves + 1, "the record was tried once");
+    assert_eq!(
+        store.inner.saved().cloned(),
+        before,
+        "the catalog as it was"
+    );
+
+    // When the record already says the album's plan B, nothing is saved,
+    // so nothing can fail.
+    store.full = false;
+    at_shutdown(open(&opened).as_mut(), &mut store).expect("recorded");
+    store.full = true;
+    let applied = at_shutdown(open(&opened).as_mut(), &mut store);
+    assert_eq!(applied, Ok(Applied::Album));
 }
 
 #[test]

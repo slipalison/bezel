@@ -171,11 +171,14 @@ pub enum DiagCode {
     ShutdownScreensNotListed,
     /// A screen's choice failed at shutdown.
     ShutdownChoiceFailed,
+    /// A screen restarted into its album at shutdown, but the catalog was
+    /// not saved: its record still says the plan B stored before.
+    ShutdownAlbumNotRecorded,
 }
 
 impl DiagCode {
     /// Every code, in declaration order.
-    pub const ALL: [Self; 57] = [
+    pub const ALL: [Self; 58] = [
         Self::Panicked,
         Self::NotStarted,
         Self::PluginNotStarted,
@@ -233,6 +236,7 @@ impl DiagCode {
         Self::ShutdownCatalogNotRead,
         Self::ShutdownScreensNotListed,
         Self::ShutdownChoiceFailed,
+        Self::ShutdownAlbumNotRecorded,
     ];
 
     /// Its fixed sentence.
@@ -320,6 +324,9 @@ impl DiagCode {
                 "the screens were not listed at shutdown: only the live one's choice applied"
             }
             Self::ShutdownChoiceFailed => "a screen's choice failed at shutdown",
+            Self::ShutdownAlbumNotRecorded => {
+                "a screen restarted into its album at shutdown, but the catalog was not saved"
+            }
         }
     }
 
