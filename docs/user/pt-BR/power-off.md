@@ -10,7 +10,7 @@ redonda e outras) você escolhe o que acontece no lugar disso:
 | Escolha | Quando o computador desliga ou reinicia | Gravado na tela (o plano B) |
 |---|---|---|
 | **Deixar como está** (o padrão) | nada é enviado, como antes | nada; escolhê-la desfaz o que as outras gravaram |
-| **Apagar a tela** | a tela apaga por completo, inclusive a luz de fundo | o temporizador de descanso dela: 1 a 10 minutos (sugestão: 5) |
+| **Apagar a tela** | a tela apaga por completo, inclusive a luz de fundo | o temporizador de repouso dela: 1 a 10 minutos (sugestão: 5) |
 | **Tocar um vídeo guardado na tela** | o vídeo escolhido toca em loop | ligar com um vídeo: o primeiro de `sd/video` |
 | **Álbum de fotos do cartão** | a tela reinicia e, uns 15 s depois, mostra o álbum | ligar com o álbum de `sd/image` |
 
@@ -24,23 +24,34 @@ suportada nelas.
   poucos segundos que o sistema dá (5 s por padrão); no Windows ele age quando
   a sessão termina (desligar, reiniciar ou sair da sessão). Sair do Bezel pela
   bandeja ou pela janela não aplica nada.
-- A linha de comando só registra a escolha e grava o plano B; com só o
-  `bezel run` ou o serviço dele, o que acontece no desligamento é o plano B.
+- A linha de comando só registra a escolha e grava o plano B. Sem o Bezel
+  Studio aberto (só o `bezel run` ou o serviço dele, ou o studio fechado), nada
+  é enviado no desligamento e sobra só o plano B: com **Apagar a tela**, o
+  temporizador de repouso da tela a apaga alguns minutos depois; um vídeo ou o
+  álbum só começam quando a própria tela liga de novo (o computador corta a
+  energia da USB, uma queda de energia, uma reinicialização). Enquanto o
+  computador mantém a USB energizada depois de desligar, a tela fica congelada
+  na última imagem até lá.
 - Se a escolha não pode ser cumprida (o vídeo foi apagado, o cartão foi
   retirado), a tela é apagada em vez de ficar congelada. Uma tela que já estava
   dormindo fica como está.
 - Quando o computador liga de novo, o Bezel acorda a tela e volta a mostrar o
   seu tema ao vivo.
-- Suspender o computador não está coberto.
+- Suspender o computador não está coberto, nem sair da sessão no Linux (só
+  desligar e reiniciar).
 
 ## O plano B
 
 Escolher também grava um ajuste na própria tela, para quando o studio não pode
-agir: ele não estava aberto, o computador perdeu energia ou a tela reiniciou.
+agir (ele não estava aberto, o computador perdeu energia). A tela o aplica
+quando liga sozinha (ao receber energia, ao reiniciar); só o temporizador de
+repouso de **Apagar a tela** age também enquanto a tela continua energizada.
 
-- **Apagar a tela** grava o temporizador de descanso da própria tela: ela se
+- **Apagar a tela** grava o temporizador de repouso da própria tela: ela se
   apaga depois de tantos minutos **sem receber nada do computador**. Enquanto um
-  tema está ao vivo, o Bezel a mantém acordada. O temporizador também para um
+  tema está ao vivo, o Bezel envia à tela uma atualização de um pixel depois de
+  30 segundos sem mais nada, para que o temporizador não se esgote. O
+  temporizador também para um
   vídeo ou uma imagem que a tela toca sozinha (**Tocar na tela** com o Ao vivo
   desligado), por isso só esta escolha o usa.
 - **Álbum de fotos do cartão** faz a tela ligar com o álbum: as fotos de
@@ -56,7 +67,7 @@ agir: ele não estava aberto, o computador perdeu energia ou a tela reiniciou.
 
 O **Mostrar ao ligar…** e esta escolha mudam o mesmo ajuste de início: vale o
 último que você fez, e definir o arquivo de início mantém o temporizador de
-descanso. Veja [Armazenamento e vídeo](storage-and-video.md).
+repouso. Veja [Armazenamento e vídeo](storage-and-video.md).
 
 Duas telas do mesmo modelo dividem uma escolha, como dividem o catálogo do
 Bezel.
@@ -80,16 +91,21 @@ cartão, e **Álbum de fotos do cartão** abre o álbum.
 bezel standby show                                   # a escolha e o plano B de cada tela conectada
 bezel standby set off --sleep 5 --yes                # apagar no desligamento; temporizador de 5 min
 bezel standby set video --file sd/video/clip.mp4 --yes
-bezel standby set album --brightness 40 --yes        # liga com 40% de brilho
+bezel standby set album --brightness 40 --yes        # o álbum liga com 40% de brilho
 bezel standby set keep --yes                         # volta ao padrão; desfaz o plano B
 ```
 
 Sem `--yes`, o `set` só mostra o que gravaria: nada é enviado à tela e nada é
 registrado. O `--brightness N` (0 a 100) escolhe o nível da luz de fundo com que
 a tela liga, gravado com o plano B, como faz o `bezel storage boot --brightness`;
-sem ele, o padrão da tela, cerca de 67%. A escolha fica no catálogo do Bezel (`<data>/bezel/storage`), que o
-aplicativo lê no desligamento, então uma escolha feita aqui com o aplicativo
-aberto vale.
+sem ele, o padrão da tela, cerca de 67%. O Bezel também registra esse nível:
+quando o Bezel Studio reinicia a tela no álbum no desligamento, o álbum liga com
+ele. Um vídeo tocado no desligamento fica com o nível que a tela tem naquela
+hora; o nível gravado vale quando a tela liga sozinha com um vídeo. O
+`bezel standby show` diz o plano B gravado por último na tela, por esta escolha
+ou pelo `bezel storage boot`, o que veio depois. A escolha fica no catálogo do
+Bezel (`<data>/bezel/storage`), que o aplicativo lê no desligamento, então uma
+escolha feita aqui com o aplicativo aberto vale.
 
 A linha de comando e as mensagens dela ficam em inglês.
 

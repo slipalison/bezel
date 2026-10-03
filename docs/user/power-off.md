@@ -24,23 +24,34 @@ supported for them.
   system grants (5 s by default); on Windows it acts when the session ends
   (shutting down, restarting or signing out). Quitting Bezel from the tray or
   the window applies nothing.
-- The command line only records the choice and stores the plan B; with only
-  `bezel run` or its service, what happens at shutdown is the plan B.
+- The command line only records the choice and stores the plan B. Without
+  Bezel Studio running (only `bezel run` or its service, or the studio
+  closed), nothing is sent at shutdown, and only the plan B is left: with
+  **Turn the screen off**, the screen's sleep timer turns it off a few minutes
+  later; a video or the album starts only when the screen itself starts again
+  (the computer cuts the USB power, a power cut, a restart). While the computer
+  keeps the USB powered after it shuts down, the screen stays frozen on its
+  last picture until then.
 - If the choice cannot be carried out (the video was deleted, the card was
   removed), the screen is turned off rather than left frozen. A screen that was
   already asleep stays as it is.
 - When the computer starts again, Bezel wakes the screen and shows your live
   theme again.
-- Suspending the computer (sleep) is not covered.
+- Suspending the computer (sleep) is not covered, nor signing out on Linux
+  (only shutting down and restarting).
 
 ## The plan B
 
 Choosing also stores a setting on the screen itself, for when the studio cannot
-act: it was not running, the computer lost power, or the screen restarted.
+act (it was not running, the computer lost power). The screen applies it when it
+starts on its own (power-up, a restart); only the sleep timer of **Turn the
+screen off** also acts while the screen stays powered.
 
 - **Turn the screen off** stores the screen's own sleep timer: it turns itself
   off after that many minutes **without anything from the computer**. While a
-  theme is live, Bezel keeps it awake. The timer also stops a video or picture
+  theme is live, Bezel sends the screen a one-pixel update after 30 seconds
+  without anything else, so that the timer does not run out. The timer also
+  stops a video or picture
   the screen plays on its own (**Play on the screen** with Live off), which is
   why only this choice uses it.
 - **Photo album from the card** makes the screen start with the album: the
@@ -79,7 +90,7 @@ and the card, and **Photo album from the card** opens the album.
 bezel standby show                                   # each connected screen's choice and plan B
 bezel standby set off --sleep 5 --yes                # turn off at shutdown; sleep timer 5 min
 bezel standby set video --file sd/video/clip.mp4 --yes
-bezel standby set album --brightness 40 --yes        # starts at 40% brightness
+bezel standby set album --brightness 40 --yes        # the album starts at 40% brightness
 bezel standby set keep --yes                         # back to the default; undoes the plan B
 ```
 
@@ -87,9 +98,13 @@ Without `--yes`, `set` only prints what it would store: nothing is sent to the
 screen and nothing is recorded. `--brightness N` (0 to 100) chooses the
 backlight level the screen starts with, stored with the plan B, as
 `bezel storage boot --brightness` does; without it, the screen's default, about
-67%. The choice lives in Bezel's catalog
-(`<data>/bezel/storage`), which the app reads at shutdown, so a choice made here
-while the app is open counts.
+67%. Bezel records that level too: when Bezel Studio restarts the screen into
+the album at shutdown, the album starts at it. A video played at shutdown keeps
+the level the screen has at that moment; the stored level applies when the
+screen starts with a video on its own. `bezel standby show` says the plan B
+last stored on the screen, by this choice or by `bezel storage boot`, whichever
+came last. The choice lives in Bezel's catalog (`<data>/bezel/storage`), which
+the app reads at shutdown, so a choice made here while the app is open counts.
 
 ## The photo album
 

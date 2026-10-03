@@ -198,7 +198,10 @@ the Conventional Commits.
   screen for when the studio cannot act: the screen's sleep timer (1 to 10
   minutes) with **Turn the screen off**, or what it starts with (the album, or
   the first video of `sd/video`, since the screen cannot be told which file);
-  **Leave as it is** undoes it. A choice that cannot be carried out (the
+  **Leave as it is** undoes it. Without the studio, only the sleep timer acts
+  while the screen stays powered: the album or a video starts when the screen
+  itself starts again. `--brightness` is recorded with the plan B, and the
+  album's restart at shutdown starts at it. A choice that cannot be carried out (the
   video or the card is gone) turns the screen off. Photos added to the album
   (`bezel standby album add`, or the studio's album) are stood upright by their
   EXIF orientation and framed for the way the screen stands, filled or fitted.

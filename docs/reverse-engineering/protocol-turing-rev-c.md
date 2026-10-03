@@ -210,10 +210,11 @@ it; start mode 1 cycles every image of the card. There is no "set boot media" co
 app (decompiled) never names a boot file. OPTIONS is the only packet behind its start-mode setting, and its "Play
 Select" sends 0x78 with flag 0.
 
-Bezel writes OPTIONS whole from what it recorded for the screen (the link's brightness, the start mode, flip 0, the
-sleep timer), and only on an explicit user action: the boot media (`bezel storage boot`, **Show at start**) and the
-plan B of the shutdown choice (section 16). Neither rewrites the other's fields on its own; the last action wins
-(`D-2026-10-03-power-off-standby-2` (3), (4)).
+Bezel writes OPTIONS whole from what it recorded for the screen (the start mode, flip 0, the sleep timer, and as
+brightness the level the user chose with it, sent as SET_BRIGHTNESS just before, else the link's last level), and only on
+an explicit user action: the boot media (`bezel storage boot`, **Show at start**) and the plan B of the shutdown choice
+(section 16). Neither rewrites the other's fields on its own; the last action wins, and the catalog records which plan B
+was stored last, with its chosen level (`D-2026-10-03-power-off-standby-2` (3), (4)).
 
 ### 6.3 ROTATION 0x81 (vendor)
 
@@ -607,8 +608,8 @@ packets that carry it out, the one case where they leave without a click at that
 |---|---|---|
 | `keep` (default) | nothing | start mode of the boot media, sleep 0 (nothing when it already was `keep`) |
 | `off` | TURNOFF 0x83 only, without waiting for the SoC to leave | start mode of the boot media, sleep 1..10 min |
-| `video` | PLAY_VIDEO 0x78, loop, of the chosen file; no 0x87 after it | start mode 2, sleep 0 |
-| `album` | OPTIONS (start mode 1, sleep 0), then RESTART 0x84, without waiting | start mode 1, sleep 0 |
+| `video` | GET_FILE_SIZE 0x6E of the chosen file, STOP_VIDEO 0x79 and at most one STOP_MEDIA 0x96, then PLAY_VIDEO 0x78, loop; no 0x87 after it | start mode 2, sleep 0 |
+| `album` | GET_STORAGE_INFO 0x64 (a card?), SET_BRIGHTNESS 0x7B when a level was stored with the last plan B, OPTIONS (start mode 1, sleep 0, that level), then RESTART 0x84, without waiting | start mode 1, sleep 0 |
 
 A choice that cannot be carried out (the file or the card is gone) gets TURNOFF instead of a frozen frame. The sleep
 timer goes only with `off`, because it also powers down a standalone album or video (section 19). No other persistent,
