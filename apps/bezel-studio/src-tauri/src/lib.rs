@@ -317,22 +317,26 @@ pub fn run() -> Result<(), tauri::Error> {
             commands::album_add,
         ])
         .build(tauri::generate_context!())?;
-    app.run(on_run_event);
+    app.run(|app, event| on_run_event(app, &event, bezel_power::session_ending));
     Ok(())
 }
 
-/// What the app does when its event loop ends (`RunEvent::Exit`): while
-/// Windows ends the session (shutting down, restarting, signing out), each
-/// screen gets its choice, waited for ([`power::at_exit`]); quitting the
-/// app (the tray, the window) applies nothing. Off Windows the session is
-/// never said to be ending here: logind tells Linux's shutdowns
-/// ([`power::watch_shutdowns`]).
-fn on_run_event<R: Runtime>(app: &AppHandle<R>, event: RunEvent) {
-    if let RunEvent::Exit = event {
-        let backend = app.try_state::<Shared>();
-        let exit = power::Exit::of(bezel_power::session_ending());
-        let _ = power::at_exit(backend.as_deref(), exit);
+/// What the app does with each event of its loop, as [`run`] hands them
+/// over with whether the session is ending (`session_ending`:
+/// [`bezel_power::session_ending`]). Only the end of the loop
+/// (`RunEvent::Exit`) while Windows ends the session (shutting down,
+/// restarting, signing out) applies each screen's choice, waited for
+/// ([`power::at_exit`]); quitting the app (the tray, the window), the
+/// request to exit before it and every other event apply nothing. Off
+/// Windows the session is never said to be ending here: logind tells
+/// Linux's shutdowns ([`power::watch_shutdowns`]).
+fn on_run_event<R: Runtime>(app: &AppHandle<R>, event: &RunEvent, session_ending: fn() -> bool) {
+    if !matches!(event, RunEvent::Exit) {
+        return;
     }
+    let backend = app.try_state::<Shared>();
+    let exit = power::Exit::of(session_ending());
+    let _ = power::at_exit(backend.as_deref(), exit);
 }
 
 /// Keeps the tray's live item in step with whether a screen is live.
@@ -907,6 +911,110 @@ mod tests {
         assert!(source.calls().is_empty(), "KLIPY was asked at start");
         #[cfg(target_os = "linux")]
         logind.saw_the_studio_take_the_lock_and_say_nothing_else();
+    }
+
+    /// D-2026-10-03-power-off-standby-3 (2), DoD row 3: the handler
+    /// `App::run` gets ([`on_run_event`]), driven by Tauri's runtime (the
+    /// mock one) after the app's real setup put the fake 8.8" live with
+    /// `off` recorded. The window closes, so the runtime sends
+    /// `ExitRequested`, then `Exit`. Only `Exit`, and only while the session
+    /// is ending, applies the choice (TURNOFF through the live screen's
+    /// link), and after it the final state holds; the request to exit
+    /// before it, and the same `Exit` when the session is not ending (the
+    /// app quit), send nothing. The session's end is the only thing the
+    /// test gives the handler instead of Windows' answer.
+    ///
+    /// Not built on Windows (D-2026-10-01-gif-sticker-search-8): the mock
+    /// runtime cannot load there; `power::tests::a_session_end_applies_the_
+    /// choice_and_a_quit_does_not` runs what `Exit` does on Windows too.
+    #[cfg(not(windows))]
+    #[test]
+    fn only_the_exit_event_of_an_ending_session_applies_the_choice() {
+        use crate::power::tests::{DISPLAY, adapters_over, folders_for, off};
+        use bezel_devices::fake::StorageCall;
+
+        let ended = |session_ending: fn() -> bool, name: &str| {
+            let (_root, folders) = folders_for(name, off());
+            let fake = FakeConnector::with_storage(FakeStorage::default());
+            let (made, _) = mpsc::channel();
+            let start = Start {
+                simulate: false,
+                adapters: adapters_over(FakeBus::turing_88(), fake.clone()),
+                hidden: true,
+                folders: Box::new(move |_: &AppHandle<MockRuntime>| Ok(folders)),
+                gif_source: counting(&FakeGifSource::new(), made),
+                tray: Box::new(|_: &AppHandle<MockRuntime>, _, _: &Texts| {
+                    let synced: LiveSync = Box::new(|_| {});
+                    Ok(synced)
+                }),
+                logind: no_bus(),
+            };
+            let app = mock_builder()
+                .setup(move |app| setup(app, start))
+                .build(context_with_the_window())
+                .unwrap();
+            let screen = fake.clone();
+            let turned_off = move || {
+                let calls = screen.log().storage.calls;
+                calls
+                    .iter()
+                    .filter(|c| **c == StorageCall::TurnOffNow)
+                    .count()
+            };
+            let (seen, seen_rx) = mpsc::channel();
+            app.run_return(move |app, event| {
+                let kind = match &event {
+                    RunEvent::Ready => "Ready",
+                    RunEvent::ExitRequested { .. } => "ExitRequested",
+                    RunEvent::Exit => "Exit",
+                    // The loop's other events go through the handler too.
+                    _ => "",
+                };
+                if kind == "Ready" {
+                    let backend = Arc::clone(app.state::<Shared>().inner());
+                    let until = Instant::now() + Duration::from_secs(10);
+                    while backend.studio().live_key() != Some(DISPLAY)
+                        || fake.log().frames.is_empty()
+                    {
+                        assert!(Instant::now() < until, "the screen never went live");
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                }
+                on_run_event(app, &event, session_ending);
+                if kind.is_empty() {
+                    return;
+                }
+                let final_state = app
+                    .try_state::<Shared>()
+                    .is_some_and(|b| b.studio().shutting_down());
+                seen.send((kind, turned_off(), final_state)).unwrap();
+                if kind == "Ready"
+                    && let Some(window) = app.get_webview_window(MAIN_WINDOW)
+                {
+                    window.destroy().unwrap();
+                }
+            });
+            seen_rx.try_iter().collect::<Vec<_>>()
+        };
+
+        assert_eq!(
+            ended(|| true, "run-event-session-end"),
+            [
+                ("Ready", 0, false),
+                ("ExitRequested", 0, false),
+                ("Exit", 1, true)
+            ],
+            "the session ends"
+        );
+        assert_eq!(
+            ended(|| false, "run-event-quit"),
+            [
+                ("Ready", 0, false),
+                ("ExitRequested", 0, false),
+                ("Exit", 0, false)
+            ],
+            "the app quits"
+        );
     }
 
     /// A bus address where nothing listens: the start of a test that does

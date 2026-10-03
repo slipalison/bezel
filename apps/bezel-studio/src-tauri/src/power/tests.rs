@@ -69,7 +69,7 @@ const TIME: LocalTime = LocalTime {
 };
 
 /// The fake 8.8"'s display (its SoC's port): the key it goes live by.
-const DISPLAY: &str = "/dev/ttyACM1";
+pub(crate) const DISPLAY: &str = "/dev/ttyACM1";
 
 /// The fake 8.8"'s MCU, the one port of the screen when it sleeps.
 const MCU: &str = "/dev/ttyACM0";
@@ -86,7 +86,7 @@ const PATIENCE: Duration = Duration::from_secs(10);
 const LONG_DELAY: Duration = Duration::from_secs(30);
 
 /// `off` as the CLI records it (5 minutes of plan B).
-fn off() -> Standby {
+pub(crate) fn off() -> Standby {
     Standby::Off(SleepMinutes::SUGGESTED)
 }
 
@@ -102,7 +102,7 @@ fn record(data: &Path, standby: Standby) {
 /// The folders of the test `name` (its root, removed when dropped), the
 /// 8.8"'s choice `standby` recorded and its display remembered as the live
 /// screen (`liveScreen`), as the app leaves them.
-fn folders_for(name: &str, standby: Standby) -> (Root, Folders) {
+pub(crate) fn folders_for(name: &str, standby: Standby) -> (Root, Folders) {
     let root = Root(temp_root(name));
     let folders = Folders::under(&root.0);
     record(&folders.data, standby);
@@ -111,7 +111,7 @@ fn folders_for(name: &str, standby: Standby) -> (Root, Folders) {
 }
 
 /// A test's temporary folder, removed when dropped.
-struct Root(PathBuf);
+pub(crate) struct Root(PathBuf);
 
 impl Drop for Root {
     fn drop(&mut self) {
@@ -126,7 +126,7 @@ fn settings(config: &Path) -> SettingsFile {
 
 /// The machine of the tests: `bus`'s screens, reached through `connector`,
 /// and scripted sensors.
-fn adapters_over(
+pub(crate) fn adapters_over(
     bus: FakeBus,
     connector: impl ScreenConnector + Send + Sync + 'static,
 ) -> Adapters {
