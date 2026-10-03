@@ -39,6 +39,10 @@ use crate::tests::temp_root;
 use crate::{Adapters, Folders, compose};
 
 #[cfg(target_os = "linux")]
+use bezel_core::domain::device::{Transport, UsbId};
+#[cfg(target_os = "linux")]
+use bezel_core::domain::discovery::{DeviceAddress, Endpoint, UsbLocation};
+#[cfg(target_os = "linux")]
 use bezel_core::ports::GifSource;
 #[cfg(target_os = "linux")]
 use bezel_media::collection::FakeGifSource;
@@ -93,9 +97,15 @@ pub(crate) fn off() -> Standby {
 /// Records `standby` for the 8.8" in the catalog under `data`, as another
 /// writer (the CLI) does while the studio runs.
 fn record(data: &Path, standby: Standby) {
+    record_for(data, MODEL, standby);
+}
+
+/// Records `standby` for the screens of `model` in the catalog under
+/// `data`.
+fn record_for(data: &Path, model: ModelId, standby: Standby) {
     let mut archive = DiskArchive::open(storage_dir(data)).unwrap();
     let mut catalog = archive.load().unwrap();
-    catalog.screen_mut(&ScreenKey::new(MODEL)).standby = standby;
+    catalog.screen_mut(&ScreenKey::new(model)).standby = standby;
     archive.save(&catalog).unwrap();
 }
 
@@ -146,6 +156,43 @@ fn backend_on(
     connector: impl ScreenConnector + Send + Sync + 'static,
 ) -> Shared {
     Arc::new(compose(folders, adapters_over(bus, connector), false))
+}
+
+/// A 5" rev C screen's display (its SoC's port): the second screen of the
+/// tests that need one awake but not live.
+#[cfg(target_os = "linux")]
+const FIVE_DISPLAY: &str = "/dev/ttyACM3";
+
+/// The 5"'s model, whose choice is its own (the studio knows its screens by
+/// model).
+#[cfg(target_os = "linux")]
+const FIVE: ModelId = ModelId("turing-5");
+
+/// The fake 8.8" and an awake 5" rev C (its `USB7INCH` MCU and its SoC
+/// behind another hub): a second screen the shutdown may open.
+#[cfg(target_os = "linux")]
+fn with_a_five() -> FakeBus {
+    let at = |port: &str, usb: UsbId, serial: Option<&str>, last: u8| Endpoint {
+        address: DeviceAddress(port.into()),
+        transport: Transport::Serial,
+        usb,
+        serial_number: serial.map(str::to_string),
+        manufacturer: None,
+        product: None,
+        location: Some(UsbLocation {
+            bus: "3".into(),
+            ports: vec![2, last],
+        }),
+    };
+    FakeBus::turing_88().and(FakeBus::new(vec![
+        at(
+            "/dev/ttyACM2",
+            UsbId::new(0x1a86, 0x5722),
+            Some("USB7INCH"),
+            1,
+        ),
+        at(FIVE_DISPLAY, UsbId::new(0x1d6b, 0x0106), None, 2),
+    ]))
 }
 
 /// A link that hangs: the error that makes a live screen be connected
@@ -360,6 +407,39 @@ impl ScreenStorage for RecordingLink {
 
     fn restart(&mut self, confirmed: Confirmed) -> Result<()> {
         self.store("storage.restart")?.restart(confirmed)
+    }
+}
+
+/// A connector that reaches the screen whose display is at `address`
+/// through `other` and every other screen through `main`: what each screen
+/// heard, apart.
+#[cfg(target_os = "linux")]
+#[derive(Clone)]
+struct Apart {
+    main: Recording,
+    address: &'static str,
+    other: Recording,
+}
+
+#[cfg(target_os = "linux")]
+impl Apart {
+    fn route(&self, screen: &Screen) -> &Recording {
+        if screen.address().is_some_and(|a| a.0 == self.address) {
+            &self.other
+        } else {
+            &self.main
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl ScreenConnector for Apart {
+    fn connect(&self, screen: &Screen) -> Result<Box<dyn ScreenLink>> {
+        self.route(screen).connect(screen)
+    }
+
+    fn restart(&self, screen: &Screen) -> Result<()> {
+        self.route(screen).restart(screen)
     }
 }
 
@@ -810,9 +890,21 @@ fn run_app(
     bus: BusAddress,
     body: impl FnOnce(&Shared) + 'static,
 ) {
+    run_app_on(folders, FakeBus::turing_88(), connector, bus, body);
+}
+
+/// [`run_app`] with the screens of `screens`.
+#[cfg(target_os = "linux")]
+fn run_app_on(
+    folders: Folders,
+    screens: FakeBus,
+    connector: impl ScreenConnector + Send + Sync + 'static,
+    bus: BusAddress,
+    body: impl FnOnce(&Shared) + 'static,
+) {
     let start = Start {
         simulate: false,
-        adapters: adapters_over(FakeBus::turing_88(), connector),
+        adapters: adapters_over(screens, connector),
         hidden: true,
         folders: Box::new(move |_: &AppHandle<MockRuntime>| Ok(folders)),
         gif_source: no_gifs(),
@@ -967,6 +1059,105 @@ fn linux_keep_releases_the_lock_at_once_and_sends_nothing() {
         assert!(but_frames(&seen.since(before)).is_empty(), "{released:?}");
         assert!(backend.studio().shutting_down());
     });
+}
+
+/// DoD row 2 (critic of iteration 2): with `keep` the shutdown opens no
+/// screen at all. Besides the live 8.8", a 5" rev C is awake but not live:
+/// opening it (HELLO, STOP_MEDIA, ...) only to send it nothing would stop
+/// what it plays on its own, so its connector hears nothing, not even a
+/// connection, and the lock is released at once.
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_keep_opens_no_awake_screen_that_is_not_live() {
+    let logind = Arc::new(LogindBus::start(Some(LONG_DELAY)));
+    let (_root, folders) = folders_for("power-keep-five", Standby::Keep);
+    record_for(&folders.data, FIVE, Standby::Keep);
+    let (heard, five) = (Heard::default(), Heard::default());
+    let main = Recording::over(
+        FakeConnector::with_storage(FakeStorage::default()),
+        &heard,
+        Hold::Never,
+    );
+    let card = FakeStorage::default().with_card(1 << 30);
+    let other = Recording::over(FakeConnector::with_storage(card), &five, Hold::Never);
+    let connector = Apart {
+        main,
+        address: FIVE_DISPLAY,
+        other,
+    };
+    let (bus, seen, five_heard) = (Arc::clone(&logind), heard.clone(), five.clone());
+    let address = logind.address();
+    run_app_on(folders, with_a_five(), connector, address, move |backend| {
+        wait_live(backend, &seen);
+        assert!(bus.logind().wait_for_inhibitors(1, PATIENCE));
+        assert!(five_heard.all().is_empty(), "the 5\" was opened at start");
+        let before = seen.all().len();
+        let asked = Instant::now();
+        bus.logind().prepare_for_shutdown(true).unwrap();
+        assert!(bus.logind().wait_for_release(0, PATIENCE));
+        assert!(
+            asked.elapsed() < Duration::from_secs(3),
+            "{:?}",
+            asked.elapsed()
+        );
+        assert!(backend.studio().shutting_down());
+        assert!(
+            five_heard.all().is_empty(),
+            "the shutdown opened the 5\": {:?}",
+            five_heard.all()
+        );
+        assert!(
+            but_frames(&seen.since(before)).is_empty(),
+            "{:?}",
+            seen.all()
+        );
+    });
+    assert!(five.all().is_empty(), "{:?}", five.all());
+}
+
+/// DoD row 2, the other side of the case above: a choice that is not
+/// `keep` on an awake rev C screen that is not live (the 5", `off`) opens
+/// it and applies it, TURNOFF and nothing else, while the live 8.8"
+/// (`keep`) hears nothing.
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_a_choice_opens_an_awake_screen_that_is_not_live() {
+    let logind = Arc::new(LogindBus::start(Some(LONG_DELAY)));
+    let (_root, folders) = folders_for("power-off-five", Standby::Keep);
+    record_for(&folders.data, FIVE, off());
+    let (heard, five) = (Heard::default(), Heard::default());
+    let main = Recording::over(
+        FakeConnector::with_storage(FakeStorage::default()),
+        &heard,
+        Hold::Never,
+    );
+    let fake = FakeConnector::with_storage(FakeStorage::default());
+    let other = Recording::over(fake.clone(), &five, Hold::Never);
+    let connector = Apart {
+        main,
+        address: FIVE_DISPLAY,
+        other,
+    };
+    let (bus, seen, five_heard) = (Arc::clone(&logind), heard.clone(), five.clone());
+    let address = logind.address();
+    run_app_on(folders, with_a_five(), connector, address, move |backend| {
+        wait_live(backend, &seen);
+        assert!(bus.logind().wait_for_inhibitors(1, PATIENCE));
+        let before = seen.all().len();
+        bus.logind().prepare_for_shutdown(true).unwrap();
+        assert!(bus.logind().wait_for_release(0, PATIENCE));
+        assert_eq!(five_heard.all(), ["connect", "turn_off_now"]);
+        assert!(
+            but_frames(&seen.since(before)).is_empty(),
+            "{:?}",
+            seen.all()
+        );
+    });
+    assert_eq!(
+        fake.log().storage.calls.last(),
+        Some(&StorageCall::TurnOffNow)
+    );
+    assert_eq!(fake.log().connects, 1);
 }
 
 /// DoD row 2: after the action, in the final state, nothing reaches a
