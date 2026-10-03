@@ -16,7 +16,9 @@
 #     which host, when (nothing without a key nor at start), that previews
 #     come through Bezel, where the key is kept and with which permissions,
 #     that the window sees only its last 4 characters, how to remove it and
-#     where the collection is;
+#     where the collection is; the page on what a screen does when the
+#     computer shuts down names the `bezel standby` commands, `--yes`, and
+#     the card folders of the album and of the start video;
 #   - every relative link of the docs, README.md and CHANGELOG.md points at a
 #     file that exists, and an `#anchor` at a heading of that file;
 #   - nothing private: no home-folder paths, e-mail addresses, tokens, keys or
@@ -24,8 +26,9 @@
 #   - README.md no longer says "early development" and links to the guide;
 #     CHANGELOG.md has an `## [Unreleased]` section with the changes of each
 #     phase (the video framing's included, the live screen controls fix
-#     by the "Device or resource busy" it ends, and the GIF and sticker search
-#     by "KLIPY"; a phrase may wrap).
+#     by the "Device or resource busy" it ends, the GIF and sticker search
+#     by "KLIPY", and the choice of what a screen does when the computer
+#     "shuts down"; a phrase may wrap).
 #
 #   bash scripts/ci/check-docs.sh
 set -euo pipefail
@@ -44,7 +47,7 @@ PAGES = [
     "README.md", "install.md", "permissions.md", "first-theme.md",
     "vertical-or-horizontal.md", "sensors.md", "fps.md", "storage-and-video.md",
     "ffmpeg.md", "sd-card.md", "run-at-login.md", "migrating.md",
-    "troubleshooting.md", "devices.md", "gifs-and-stickers.md",
+    "troubleshooting.md", "devices.md", "gifs-and-stickers.md", "power-off.md",
 ]
 # Phrases a page must contain, in both languages unless a language is named.
 COMMON = {
@@ -73,6 +76,9 @@ COMMON = {
                            "the stored size differs; delete it and send it again"],
     "devices.md": ["bezel devices", "bezel monitor-mode --yes", "1A86:AD10"],
     "gifs-and-stickers.md": ["partner.klipy.com", "api.klipy.com", "Search KLIPY", "100"],
+    "power-off.md": ["bezel standby show", "bezel standby set", "bezel standby album add",
+                     "--yes", "--sleep", "--file", "sd/image", "sd/video",
+                     "bezel storage rm"],
 }
 BY_LANGUAGE = {
     EN: {
@@ -291,7 +297,7 @@ else:
     unreleased = re.sub(r"\s+", " ", m.group(1))  # a phrase may wrap
     for phrase in ("bezel udev-rules", "bezel monitor-mode", "gpu.fps", "net.ping",
                    "bezel-run@", "/usr/bin/bezel", "docs/user", "bezel storage mv",
-                   "framing", "Device or resource busy", "KLIPY"):
+                   "framing", "Device or resource busy", "KLIPY", "shuts down"):
         if phrase not in unreleased:
             fail("CHANGELOG.md", f"## [Unreleased] does not mention {phrase!r}")
 
