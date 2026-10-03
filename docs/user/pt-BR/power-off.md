@@ -80,12 +80,14 @@ cartão, e **Álbum de fotos do cartão** abre o álbum.
 bezel standby show                                   # a escolha e o plano B de cada tela conectada
 bezel standby set off --sleep 5 --yes                # apagar no desligamento; temporizador de 5 min
 bezel standby set video --file sd/video/clip.mp4 --yes
-bezel standby set album --yes
+bezel standby set album --brightness 40 --yes        # liga com 40% de brilho
 bezel standby set keep --yes                         # volta ao padrão; desfaz o plano B
 ```
 
 Sem `--yes`, o `set` só mostra o que gravaria: nada é enviado à tela e nada é
-registrado. A escolha fica no catálogo do Bezel (`<data>/bezel/storage`), que o
+registrado. O `--brightness N` (0 a 100) escolhe o nível da luz de fundo com que
+a tela liga, gravado com o plano B, como faz o `bezel storage boot --brightness`;
+sem ele, o padrão da tela, cerca de 67%. A escolha fica no catálogo do Bezel (`<data>/bezel/storage`), que o
 aplicativo lê no desligamento, então uma escolha feita aqui com o aplicativo
 aberto vale.
 

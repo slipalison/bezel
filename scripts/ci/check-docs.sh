@@ -77,7 +77,7 @@ COMMON = {
     "devices.md": ["bezel devices", "bezel monitor-mode --yes", "1A86:AD10"],
     "gifs-and-stickers.md": ["partner.klipy.com", "api.klipy.com", "Search KLIPY", "100"],
     "power-off.md": ["bezel standby show", "bezel standby set", "bezel standby album add",
-                     "--yes", "--sleep", "--file", "sd/image", "sd/video",
+                     "--yes", "--sleep", "--file", "--brightness", "sd/image", "sd/video",
                      "bezel storage rm"],
 }
 BY_LANGUAGE = {
@@ -86,12 +86,20 @@ BY_LANGUAGE = {
         "devices.md": ["not validated on hardware"],
         "fps.md": ["not validated on hardware"],
         "troubleshooting.md": ["unplug"],
+        # The studio's labels, verbatim (src/i18n/en.js: standby.title, standby.choice.*).
+        "power-off.md": ["When the computer shuts down", "**Leave as it is**",
+                         "**Turn the screen off**", "**Play a video stored on the screen**",
+                         "**Photo album from the card**"],
     },
     PT: {
         "install.md": ["Mais informações", "Executar assim mesmo", "sem assinatura"],
         "devices.md": ["não validado no hardware"],
         "fps.md": ["não validado no hardware"],
         "troubleshooting.md": ["desconecte"],
+        # The studio's labels, verbatim (src/i18n/pt-BR.js).
+        "power-off.md": ["Quando o computador desligar", "**Deixar como está**",
+                         "**Apagar a tela**", "**Tocar um vídeo guardado na tela**",
+                         "**Álbum de fotos do cartão**"],
     },
 }
 # Headings a page must have, each a whole line outside code blocks

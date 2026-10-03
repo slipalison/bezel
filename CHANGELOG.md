@@ -186,7 +186,7 @@ the Conventional Commits.
   they keep their own copy). A sticker's transparency shows the theme under
   it. See [GIFs and stickers](docs/user/gifs-and-stickers.md).
 - What a Turing rev C screen does when the computer shuts down or restarts,
-  instead of staying frozen on the theme's last picture: **Leave it as it is**
+  instead of staying frozen on the theme's last picture: **Leave as it is**
   (the default, as before), **Turn the screen off**, **Play a video stored on
   the screen** in a loop, or the **Photo album from the card** (the screen's
   own album of `sd/image`, a photo every 3 to 5 s). It is chosen per screen in
@@ -198,7 +198,7 @@ the Conventional Commits.
   screen for when the studio cannot act: the screen's sleep timer (1 to 10
   minutes) with **Turn the screen off**, or what it starts with (the album, or
   the first video of `sd/video`, since the screen cannot be told which file);
-  **Leave it as it is** undoes it. A choice that cannot be carried out (the
+  **Leave as it is** undoes it. A choice that cannot be carried out (the
   video or the card is gone) turns the screen off. Photos added to the album
   (`bezel standby album add`, or the studio's album) are stood upright by their
   EXIF orientation and framed for the way the screen stands, filled or fitted.

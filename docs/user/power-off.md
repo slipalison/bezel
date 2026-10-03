@@ -9,7 +9,7 @@ others) you choose what happens instead:
 
 | Choice | When the computer shuts down or restarts | Stored on the screen (the plan B) |
 |---|---|---|
-| **Leave it as it is** (the default) | nothing is sent, as before | nothing; choosing it undoes what the others stored |
+| **Leave as it is** (the default) | nothing is sent, as before | nothing; choosing it undoes what the others stored |
 | **Turn the screen off** | the screen goes fully dark, backlight included | its sleep timer: 1 to 10 minutes (5 suggested) |
 | **Play a video stored on the screen** | the video you chose plays in a loop | start with a video: the first one of `sd/video` |
 | **Photo album from the card** | the screen restarts and, about 15 s later, shows the album | start with the album of `sd/image` |
@@ -50,7 +50,7 @@ act: it was not running, the computer lost power, or the screen restarted.
   the screen cannot be told which file: after a restart or a power cut it plays
   the **first video of `sd/video`** on the card, not necessarily the one you
   chose.
-- **Leave it as it is** undoes it: the start setting goes back to what
+- **Leave as it is** undoes it: the start setting goes back to what
   **Show at start…** chose in the Storage tab (or the screen's clock), and the
   timer is off.
 
@@ -79,12 +79,15 @@ and the card, and **Photo album from the card** opens the album.
 bezel standby show                                   # each connected screen's choice and plan B
 bezel standby set off --sleep 5 --yes                # turn off at shutdown; sleep timer 5 min
 bezel standby set video --file sd/video/clip.mp4 --yes
-bezel standby set album --yes
+bezel standby set album --brightness 40 --yes        # starts at 40% brightness
 bezel standby set keep --yes                         # back to the default; undoes the plan B
 ```
 
 Without `--yes`, `set` only prints what it would store: nothing is sent to the
-screen and nothing is recorded. The choice lives in Bezel's catalog
+screen and nothing is recorded. `--brightness N` (0 to 100) chooses the
+backlight level the screen starts with, stored with the plan B, as
+`bezel storage boot --brightness` does; without it, the screen's default, about
+67%. The choice lives in Bezel's catalog
 (`<data>/bezel/storage`), which the app reads at shutdown, so a choice made here
 while the app is open counts.
 
