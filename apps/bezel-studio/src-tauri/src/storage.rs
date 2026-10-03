@@ -38,7 +38,7 @@ use std::time::{Duration, Instant};
 use bezel_core::BezelError;
 use bezel_core::app::manager::Manager;
 use bezel_core::app::storage::{self, PreparedUpload, UploadRequest};
-use bezel_core::domain::archive::TransferPlan;
+use bezel_core::domain::archive::{Catalog, ContentId, TransferPlan};
 use bezel_core::domain::clock::LocalTime;
 use bezel_core::domain::device::DeviceModel;
 use bezel_core::domain::geometry::Orientation;
@@ -119,6 +119,35 @@ pub struct StorageState {
     plan: Mutex<Option<PendingPlan>>,
     shown: Mutex<Shown>,
     tickets: AtomicU64,
+}
+
+/// The catalog and the local copies, locked for each call only
+/// ([`StorageState::archive_per_call`]): a use case that talks to a screen
+/// between its reads and saves of the catalog holds it while it reads or
+/// saves, never while the screen works (review W1 of iteration 3 of
+/// power-off-standby).
+pub(crate) struct ArchivePerCall<'a>(&'a Mutex<Box<dyn ArchiveStore>>);
+
+impl ArchiveStore for ArchivePerCall<'_> {
+    fn load(&mut self) -> bezel_core::Result<Catalog> {
+        lock(self.0).load()
+    }
+
+    fn save(&mut self, catalog: &Catalog) -> bezel_core::Result<()> {
+        lock(self.0).save(catalog)
+    }
+
+    fn keep(&mut self, bytes: &[u8]) -> bezel_core::Result<ContentId> {
+        lock(self.0).keep(bytes)
+    }
+
+    fn read(&mut self, content: &ContentId) -> bezel_core::Result<Option<Vec<u8>>> {
+        lock(self.0).read(content)
+    }
+
+    fn discard(&mut self, content: &ContentId) -> bezel_core::Result<()> {
+        lock(self.0).discard(content)
+    }
 }
 
 /// The claim on the screen of the running storage operation.
@@ -242,6 +271,13 @@ impl StorageState {
     /// The catalog and the local copies; only under the claim.
     pub(crate) fn archive(&self) -> MutexGuard<'_, Box<dyn ArchiveStore>> {
         lock(&self.archive)
+    }
+
+    /// The catalog and the local copies, each call locking them on its own:
+    /// for the shutdown, whose screens may hang between its reads and saves
+    /// ([`ArchivePerCall`]).
+    pub(crate) fn archive_per_call(&self) -> ArchivePerCall<'_> {
+        ArchivePerCall(&self.archive)
     }
 
     /// Where files written to be sent wait for their upload (`<cache>/sending`).

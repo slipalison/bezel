@@ -587,6 +587,39 @@ fn a_session_end_waits_four_seconds_at_most() {
     drop(go);
 }
 
+/// Review W1 of iteration 3: the shutdown holds the catalog only while it
+/// reads or saves it, never while a screen carries out its choice. A
+/// screen that hangs in its action (a write stalls until it gives up),
+/// past the deadline and after the shutdown is cancelled, holds no command
+/// that reads the catalog.
+#[test]
+fn a_hung_screen_holds_no_command_on_the_catalog() {
+    let (_root, folders) = folders_for("power-hung-catalog", off());
+    let heard = Heard::default();
+    let (go, hold) = Hold::until();
+    let fake = FakeConnector::with_storage(FakeStorage::default());
+    let backend = backend_on(
+        &folders,
+        FakeBus::turing_88(),
+        Recording::over(fake, &heard, hold),
+    );
+    backend.set_live(true, Some(DISPLAY), TIME).unwrap();
+    let deadline = Instant::now() + Duration::from_millis(500);
+    assert_eq!(shut_down(&backend, deadline), Ending::Deadline);
+    assert_eq!(heard.count("turn_off_now"), 1, "the screen hangs in it");
+    // logind cancelled the shutdown: the commands are taken again.
+    backend.leave_final_state();
+
+    let (said, answer) = mpsc::channel();
+    let reader = Arc::clone(&backend);
+    std::thread::spawn(move || {
+        let _ = said.send(reader.cache_info().is_ok());
+    });
+    let read = answer.recv_timeout(Duration::from_secs(2));
+    drop(go);
+    assert_eq!(read, Ok(true), "the catalog waited for the hung screen");
+}
+
 /// D-2026-10-03-power-off-standby-3 (1): the final state, entered where
 /// every link is opened or lent: once in it, nothing reaches a screen.
 /// Neither a refresh nor a reconnection long due (the live screen's link

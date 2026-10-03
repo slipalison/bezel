@@ -333,10 +333,12 @@ impl Backend {
     /// Applies the choice the catalog records for the screen behind `link`
     /// (keyed by its model, [`ScreenKey::new`]), which the core reads again
     /// there ([`at_shutdown`] takes no choice from the studio); `keep` sends
-    /// nothing. A failure is said.
+    /// nothing. A failure is said. The catalog is locked only while it is
+    /// read or saved, so a screen that hangs holds no other command
+    /// ([`crate::storage::ArchivePerCall`]).
     fn apply(&self, link: &mut dyn ScreenLink) {
         let key = ScreenKey::new(link.identity().model.id);
-        let applied = at_shutdown(link, &mut **self.storage.archive(), &key);
+        let applied = at_shutdown(link, &mut self.storage.archive_per_call(), &key);
         if applied.is_err() {
             diag::report(DiagCode::ShutdownChoiceFailed);
         }
