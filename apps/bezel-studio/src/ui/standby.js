@@ -434,14 +434,15 @@ export function createStandbyPanel({ root, t, locale, bridge, notify, context, s
     // The listing being read: adding waits for it, as it says what a name would replace.
     let listing = Promise.resolve();
 
-    function reload() {
+    /** Reads the album again; `note` (a failure to show) stays under it once read. */
+    function reload(note = '') {
       listing = (async () => {
         status.textContent = t('standby.album.loading');
         try {
           photos = albumPhotos(await bridge.managerOverview(key));
-          status.textContent = '';
+          status.textContent = note;
         } catch (e) {
-          status.textContent = t('standby.album.loadError', { message: errorText(t, e) });
+          status.textContent = [note, t('standby.album.loadError', { message: errorText(t, e) })].filter(Boolean).join(' ');
         }
         draw();
       })();
@@ -457,14 +458,16 @@ export function createStandbyPanel({ root, t, locale, bridge, notify, context, s
         danger: true,
       });
       if (!ok) return;
+      // A removal that failed says why, and that stays after the album is read again.
+      let failed = '';
       try {
         await bridge.deleteStored(key, photo.path, true);
         notify(t('standby.album.removed', { name: photo.name }));
         storageChanged();
       } catch (e) {
-        status.textContent = errorText(t, e);
+        failed = errorText(t, e);
       }
-      await reload();
+      await reload(failed);
       const next = list.querySelectorAll('button[data-photo]')[Math.min(at, photos.length - 1)];
       (next ?? add).focus();
     }
