@@ -347,19 +347,30 @@ export function createStandbyPanel({ root, t, locale, bridge, notify, context, s
     return complete(request) ? request : null;
   }
 
-  async function write(request) {
+  /**
+   * Writes `request` to the screen `key` (the one shown when it was asked).
+   * Its answer is drawn only while that screen is still the one shown, and
+   * only if no reading of it started since (a newer answer wins).
+   */
+  async function write(request, key = view.key) {
+    const token = (view.loads += 1);
     view.busy = true;
     view.problem = null;
     render();
+    let data = null;
+    let problem = null;
     try {
-      view.data = await bridge.setStandby(view.key, request, true);
+      data = await bridge.setStandby(key, request, true);
       notify(t('standby.saved', { choice: t(`standby.choice.${request.choice}`) }));
     } catch (e) {
-      view.problem = errorText(t, e);
+      problem = errorText(t, e);
     }
     view.busy = false;
+    const same = view.key === key;
+    if (same && data && token === view.loads) Object.assign(view, { data, status: 'ready', error: null });
+    if (same) view.problem = problem;
     render();
-    focusRadio(view.data?.choice ?? request.choice);
+    if (same) focusRadio(view.data?.choice ?? request.choice);
   }
 
   async function choose(choice) {
@@ -371,8 +382,10 @@ export function createStandbyPanel({ root, t, locale, bridge, notify, context, s
       await manageAlbum({ choosing: act === 'ask' });
       return;
     }
+    // The screen the confirmation is about, whatever is shown once it is answered.
+    const { key } = view;
     const request = await askChoice(choice);
-    if (request) await write(request);
+    if (request) await write(request, key);
   }
 
   // ------------------------------------------------------------ album --
@@ -492,7 +505,7 @@ export function createStandbyPanel({ root, t, locale, bridge, notify, context, s
 
     await reload();
     (photos.length ? list.querySelector('button[data-photo]') : add).focus();
-    if ((await m.result) === 'ok' && choosing && photos.length) await write(requestOf('album'));
+    if ((await m.result) === 'ok' && choosing && photos.length) await write(requestOf('album'), key);
   }
 
   /**
