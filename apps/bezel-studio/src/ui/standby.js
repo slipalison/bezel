@@ -596,9 +596,13 @@ export function createStandbyPanel({ root, t, locale, bridge, notify, context, s
       }
     });
 
+    // Whether Send is the danger button now: replacing is never what Enter does.
+    let replacing = false;
+
     function check() {
       const { name, problem } = albumName(input.value);
       const replaces = problem ? null : albumClash(taken, name);
+      replacing = Boolean(replaces);
       target.textContent = problem ? planRefusalText(t, locale(), problem) : t('standby.add.sendsTo', { path: albumPath(name) });
       target.classList.toggle('field-error', Boolean(problem));
       input.setAttribute('aria-invalid', String(Boolean(problem)));
@@ -610,8 +614,10 @@ export function createStandbyPanel({ root, t, locale, bridge, notify, context, s
     }
     input.addEventListener('input', check);
     input.addEventListener('keydown', (evt) => {
-      if (evt.key !== 'Enter' || send.disabled) return;
+      if (evt.key !== 'Enter') return;
       evt.preventDefault();
+      // The destructive answer is never the default: Replace takes its own click.
+      if (send.disabled || replacing) return;
       send.click();
     });
     check();

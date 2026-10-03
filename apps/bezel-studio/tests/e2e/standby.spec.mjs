@@ -344,6 +344,11 @@ test.describe('standby', () => {
     // The same name: replacing it is said, and the button says so.
     await expect(add).toContainText(t('standby.add.replaces', { name: 'praia_do_forte.png' }));
     await expectAccessible(page);
+    // Enter in the name never replaces: the danger button takes its own click.
+    await name.press('Enter');
+    await expect(add).toBeVisible();
+    await expect(add).not.toContainText(t('standby.add.sending'));
+    await expect(add.getByRole('button', { name: t('standby.add.replace') })).toBeEnabled();
     await name.fill('praia_em_pe.png');
     await expect(add).not.toContainText(t('standby.add.replaces', { name: 'praia_do_forte.png' }));
     await name.fill('praia_em_pe.jpg');
