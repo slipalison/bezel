@@ -70,8 +70,9 @@ export function demoAlbumPicture(photo, shape, fit) {
  * @param {object} deps
  * @param {{standby?: {choice: string, sleepMinutes: number|null, file: string|null}, denied?: boolean}} deps.chosen the scenario
  * @param {() => object[]} deps.screens the screens listed now
- * @param {{files: () => Map<string, number>, card: () => boolean, boot: () => string|null, storePhoto: (path: string, size: number, source: string) => void}} deps.storage
- *   the screen's files, whether it has a card, its boot media, and a photo stored on the card
+ * @param {{files: () => Map<string, number>, card: () => boolean, boot: () => string|null, storePhoto: (path: string, size: number, source: string) => void, hold?: () => Promise<void>}} deps.storage
+ *   the screen's files, whether it has a card, its boot media, a photo stored on the card, and
+ *   where a photo's upload waits until let go (tests)
  * @param {(key: string) => string} deps.orientationOf how the screen stands (the remembered orientation, else its model's)
  * @param {(screen: string) => Error} deps.denied the error of a port the system denies
  * @param {(writes: object[]) => void} [deps.onWrite] every plan B written so far, after each
@@ -196,8 +197,10 @@ export function createDemoStandby({ chosen, screens, storage, orientationOf, den
       if (storage.files().has(path) && !replace) return Promise.reject(refusal('notConfirmed', `replacing ${path} needs confirmation`, { detail: `replacing ${path}` }));
       const { width, height } = modelOf(screen);
       const bytes = Math.round(width * height * PNG_BYTES_PER_PIXEL);
-      storage.storePhoto(path, bytes, source);
-      return Promise.resolve({ path, bytes });
+      return Promise.resolve(storage.hold?.()).then(() => {
+        storage.storePhoto(path, bytes, source);
+        return { path, bytes };
+      });
     },
     /** Every plan B written so far (tests). */
     standbyWrites: () => writes.map((w) => ({ ...w })),

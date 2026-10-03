@@ -1030,6 +1030,8 @@ function createDemoStorage(chosen, { delay, now, live, isLive, theme, themes, sc
       files: () => new Map(files),
       card: () => card,
       boot: () => state.boot,
+      // A photo's upload waits here like a job's phase (`hooks.hold`, tests only).
+      hold: () => gate.hold(),
       storePhoto: (path, size, source) => {
         files.set(path, size);
         record({ path, card: cardNow(), size, content: demoContent(source, size), localCopy: true, sentAt: nowSec(), source, resolution: { ...NATIVE }, state: 'stored' });

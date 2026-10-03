@@ -237,7 +237,11 @@ export function createStandbyPanel({ root, t, locale, bridge, notify, context, s
   }
 
   // ---------------------------------------------------------- dialogs --
-  /** A modal dialog; its footer's buttons close it (an `act` that answers false keeps it open). */
+  /**
+   * A modal dialog; its footer's buttons close it (an `act` that answers false
+   * keeps it open). `hold(true)` keeps it open while something it started runs:
+   * every button disabled, Esc ignored.
+   */
   function modal(title, { wide = false } = {}) {
     const opener = document.activeElement;
     const id = `standby-dialog-${(dialogs += 1)}`;
@@ -250,6 +254,17 @@ export function createStandbyPanel({ root, t, locale, bridge, notify, context, s
       actions,
     ]);
     popovers.guard(dialog);
+    let held = false;
+    dialog.addEventListener('cancel', (evt) => {
+      if (held) evt.preventDefault();
+    });
+    dialog.addEventListener('keydown', (evt) => {
+      if (held && evt.key === 'Escape') evt.preventDefault();
+    }, true);
+    const hold = (on) => {
+      held = on;
+      for (const b of [close, ...actions.querySelectorAll('button')]) b.disabled = on;
+    };
     let resolve;
     const result = new Promise((r) => { resolve = r; });
     close.addEventListener('click', () => dialog.close('cancel'));
@@ -271,7 +286,7 @@ export function createStandbyPanel({ root, t, locale, bridge, notify, context, s
     };
     document.body.append(dialog);
     dialog.showModal();
-    return { dialog, body, result, button, id };
+    return { dialog, body, result, button, hold, id };
   }
 
   /** What confirming `request` does: at shutdown, and written to the screen now. */
@@ -416,18 +431,21 @@ export function createStandbyPanel({ root, t, locale, bridge, notify, context, s
       void thumbnails();
     }
 
-    async function reload() {
-      status.textContent = t('standby.album.loading');
-      // Adding waits for the listing, which says what a name would replace.
-      add.disabled = true;
-      try {
-        photos = albumPhotos(await bridge.managerOverview(key));
-        status.textContent = '';
-      } catch (e) {
-        status.textContent = t('standby.album.loadError', { message: errorText(t, e) });
-      }
-      add.disabled = false;
-      draw();
+    // The listing being read: adding waits for it, as it says what a name would replace.
+    let listing = Promise.resolve();
+
+    function reload() {
+      listing = (async () => {
+        status.textContent = t('standby.album.loading');
+        try {
+          photos = albumPhotos(await bridge.managerOverview(key));
+          status.textContent = '';
+        } catch (e) {
+          status.textContent = t('standby.album.loadError', { message: errorText(t, e) });
+        }
+        draw();
+      })();
+      return listing;
     }
 
     async function removePhoto(photo) {
@@ -459,11 +477,14 @@ export function createStandbyPanel({ root, t, locale, bridge, notify, context, s
         status.textContent = errorText(t, e);
       }
       if (!source) return;
-      const added = await askAdd(standing, source, photos, { stale: () => void reload() });
-      if (!added) return;
-      notify(t('standby.add.added', { name: added.name }));
-      storageChanged();
-      await reload();
+      await listing;
+      // What follows a photo sent is done once it is on the card, whatever became of its dialog.
+      const added = (name) => {
+        notify(t('standby.add.added', { name }));
+        storageChanged();
+        void reload();
+      };
+      await askAdd(standing, source, photos, { stale: () => void reload(), added });
     });
 
     await reload();
@@ -478,8 +499,10 @@ export function createStandbyPanel({ root, t, locale, bridge, notify, context, s
    * confirmation (the danger button); the app checks the card's listing
    * too, and a name it says is taken (`notConfirmed`) turns the dialog into
    * that confirmation, `stale` telling the album its list was not current.
+   * While it sends, the dialog stays open (nothing closes it) and `added`
+   * gets the name as soon as the photo is on the card.
    */
-  async function askAdd({ key, model, orientation }, source, photos, { stale = () => {} } = {}) {
+  async function askAdd({ key, model, orientation }, source, photos, { stale = () => {}, added = () => {} } = {}) {
     // The names the album has, as far as this dialog knows.
     const taken = [...photos];
     const file = source.split(/[/\\]/).pop();
@@ -534,14 +557,16 @@ export function createStandbyPanel({ root, t, locale, bridge, notify, context, s
       const { name, problem } = albumName(input.value);
       if (problem) return false;
       const replace = Boolean(albumClash(taken, name));
-      send.disabled = true;
+      m.hold(true);
       error.textContent = '';
       previewNote.textContent = t('standby.add.sending');
       try {
         await bridge.albumAdd(key, source, fit, name, true, replace);
         sent = { name };
+        added(name);
         return true;
       } catch (e) {
+        m.hold(false);
         previewNote.textContent = '';
         if (e?.code === 'notConfirmed' && !replace) {
           // The card has that name: replacing it is asked first.

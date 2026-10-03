@@ -12,6 +12,7 @@
 // confirmation that names it. No console errors, no serious or critical
 // accessibility violations.
 import { test, expect, watchErrors, expectAccessible } from './helpers.mjs';
+import { DEMO_LET_GO_EVENT } from '../../src/bridge.js';
 
 const SCREEN = '/dev/ttyACM1';
 const CHOICES = ['keep', 'off', 'video', 'album'];
@@ -33,6 +34,11 @@ async function openSettings(page, t, scenario) {
   const section = page.getByRole('region', { name: t('standby.title') });
   await expect(section.getByRole('radiogroup', { name: t('standby.title') })).toBeVisible();
   return section;
+}
+
+/** Lets the photo upload the demo holds (a page opened with `&hold`) go on, now or when it comes. */
+async function letGo(page) {
+  await page.evaluate((name) => window.dispatchEvent(new Event(name)), DEMO_LET_GO_EVENT);
 }
 
 /** The radio of `choice`. */
@@ -259,7 +265,8 @@ test.describe('standby', () => {
 
   test('album: vertical and horizontal', async ({ page, t }) => {
     const errors = watchErrors(page);
-    const section = await openSettings(page, t, 'turing88');
+    // Each photo's upload waits until the test lets it go.
+    const section = await openSettings(page, t, 'turing88&hold');
 
     // Choosing the album opens its manager: empty, it cannot be used yet.
     await radio(section, t, 'album').click();
@@ -300,6 +307,13 @@ test.describe('standby', () => {
     await expect(add).toContainText(t('standby.add.sendsTo', { path: 'sd/image/praia_do_forte.png' }));
     await expectAccessible(page);
     await add.getByRole('button', { name: t('standby.add.send') }).click();
+    // While it sends, nothing closes the dialog: not Esc, not Cancel nor the X (review W1).
+    await expect(add).toContainText(t('standby.add.sending'));
+    await page.keyboard.press('Escape');
+    await expect(add).toBeVisible();
+    await expect(add.getByRole('button', { name: t('dialog.cancel') })).toBeDisabled();
+    await expect(add.getByRole('button', { name: t('dialog.close') })).toBeDisabled();
+    await letGo(page);
     await expect(add).toHaveCount(0);
     await expect(toast(page)).toHaveText(t('standby.add.added', { name: 'praia_do_forte.png' }));
     await expect(photosIn(album, t)).toHaveCount(1);
@@ -335,6 +349,7 @@ test.describe('standby', () => {
     await name.fill('praia_em_pe.jpg');
     await expect(add.getByRole('button', { name: t('standby.add.send') })).toBeDisabled();
     await name.fill('praia_em_pe.png');
+    await letGo(page);
     await name.press('Enter');
     await expect(add).toHaveCount(0);
     await expect(photosIn(album, t)).toHaveCount(2);
@@ -344,6 +359,7 @@ test.describe('standby', () => {
     await expect(frame).toHaveAttribute('data-state', 'ready');
     const replace = add.getByRole('button', { name: t('standby.add.replace') });
     await expect(replace).toHaveClass(/danger-button/);
+    await letGo(page);
     await replace.click();
     await expect(add).toHaveCount(0);
     await expect(toast(page)).toHaveText(t('standby.add.added', { name: 'praia_do_forte.png' }));
