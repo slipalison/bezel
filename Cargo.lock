@@ -424,6 +424,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "bezel-power"
+version = "0.0.0"
+dependencies = [
+ "dbus",
+ "thiserror 2.0.21",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "bezel-render"
 version = "0.0.0"
 dependencies = [
